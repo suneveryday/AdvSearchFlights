@@ -15,6 +15,8 @@ AdvSearchFlights 是一个纯 Python 后端命令行工具，用于复杂航班�
 - 输出机场三字码、机场中文名、航空公司中文名称、航班号、执飞机型、起降时间、中转机场、中转停留小时数和单程价格。
 - 支持 `table`、`text`、`json` 三种输出格式。
 - 真实数据调用默认 90 秒冷却，失败后按 30/60/90 秒递增等待重试。
+<img width="3990" height="3946" alt="image" src="https://github.com/user-attachments/assets/fb446f58-4ac7-4f6e-86ad-2914d51be5f0" />
+
 
 ## 安装
 
