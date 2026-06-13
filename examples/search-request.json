@@ -1,0 +1,13 @@
+﻿{
+  "origin": "上海",
+  "destinations": ["墨尔本", "悉尼", "新加坡", "东京", "大阪"],
+  "departure": "2026-09-29",
+  "return_date": "2026-10-07",
+  "provider": "auto",
+  "output_format": "json",
+  "max_stops": 1,
+  "max_layover_hours": 10,
+  "adults": 1,
+  "currency": "CNY",
+  "limit": 10
+}
