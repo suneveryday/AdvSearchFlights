@@ -1,6 +1,6 @@
 # AdvSearchFlights
 
-AdvSearchFlights 是一个纯 Python 后端命令行工具，用于复杂航班搜索、开口航线组合和价格排序。它以 Google Flights / `fli` 为主数据源，并支持可选的 Skyscanner 实验备用源。
+一个多条件航班搜索工具，支持搜索从1个城市到最多 5 个候选目的地之间，包含中转、开口的往返航线组合，查询最低价及详细航班信息。
 
 ## 核心功能
 
