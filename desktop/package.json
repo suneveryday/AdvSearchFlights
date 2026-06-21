@@ -1,11 +1,12 @@
 {
   "name": "farello-desktop",
   "private": true,
-  "version": "0.10.0",
+  "version": "0.10.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:sidecar": "sh ../scripts/build_macos_sidecar.sh",
     "test": "vitest run",
     "tauri": "tauri"
   },

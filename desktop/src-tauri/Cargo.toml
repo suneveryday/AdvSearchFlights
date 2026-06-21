@@ -1,6 +1,6 @@
 [package]
 name = "farello-desktop"
-version = "0.10.0"
+version = "0.10.1"
 description = "Farello macOS flight search desktop app"
 authors = ["Farello contributors"]
 edition = "2021"

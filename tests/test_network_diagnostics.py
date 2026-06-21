@@ -38,11 +38,23 @@ def test_provider_error_classification() -> None:
 def test_diagnose_network_reports_missing_fli(monkeypatch) -> None:
     monkeypatch.setattr("adv_search_flights.network.diagnostics.shutil.which", lambda _: None)
     monkeypatch.setattr("adv_search_flights.network.diagnostics.Path.exists", lambda _: False)
+    monkeypatch.setattr("adv_search_flights.network.diagnostics._fli_runtime_available", lambda: False)
     diagnostics = diagnose_network("fli", check_google=False)
 
     assert diagnostics.status == "error"
     assert diagnostics.checks[0].name == "fli_cli"
     assert diagnostics.checks[0].status == "error"
+
+
+def test_diagnose_network_accepts_bundled_fli_runtime(monkeypatch) -> None:
+    monkeypatch.setattr("adv_search_flights.network.diagnostics.shutil.which", lambda _: None)
+    monkeypatch.setattr("adv_search_flights.network.diagnostics.Path.exists", lambda _: False)
+    monkeypatch.setattr("adv_search_flights.network.diagnostics._fli_runtime_available", lambda: True)
+
+    diagnostics = diagnose_network("fli", check_google=False)
+
+    assert diagnostics.checks[0].status == "ok"
+    assert diagnostics.checks[0].message == "内置 fli 运行时可用"
 
 
 def test_diagnose_network_classifies_google_timeout(monkeypatch) -> None:

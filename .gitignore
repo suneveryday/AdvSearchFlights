@@ -17,6 +17,7 @@ build/
 *.egg-info/
 desktop/src-tauri/gen/
 desktop/src-tauri/target/
+desktop/src-tauri/binaries/farello-backend-*
 *.sqlite
 *.sqlite3
 *.db

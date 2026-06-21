@@ -14,7 +14,9 @@ src/adv_search_flights/
   network/      proxy summary, provider error classification, and network diagnostics
 desktop/
   src/          React/TypeScript GUI
-  src-tauri/    Tauri macOS shell and local gui-search command bridge
+  src-tauri/    Tauri macOS shell, embedded sidecar, and gui-search command bridge
+scripts/
+  build_macos_sidecar.py  PyInstaller build for the self-contained Python backend
 ```
 
 ## Search flow
@@ -39,9 +41,10 @@ The desktop GUI calls the Python backend through a local subprocess instead of a
 
 1. React maps the search form into the stable `gui-search` JSON payload.
 2. Tauri invokes the `gui_search` command.
-3. The command starts `adv-search-flights gui-search`, writes JSON to stdin, and parses stdout.
-4. The Python CLI returns an envelope with `response`, `network_status`, `provider_status`, and `error`.
-5. The GUI renders user-friendly network status, errors, results, and raw JSON details.
+3. A packaged app starts the embedded `farello-backend`; source development can fall back to the project virtual environment or system `adv-search-flights`.
+4. Tauri writes JSON to the subprocess stdin and parses stdout.
+5. The Python CLI returns an envelope with `response`, `network_status`, `provider_status`, and `error`.
+6. The GUI renders user-friendly network status, errors, results, and raw JSON details.
 
 When the React app runs in a normal browser instead of Tauri, it uses mock data so UI work can continue without a Python subprocess.
 

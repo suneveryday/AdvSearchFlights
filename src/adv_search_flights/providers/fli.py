@@ -28,10 +28,6 @@ class FliProvider(FlightProvider):
         max_layover_minutes: int,
         cabin_class: str = "ECONOMY",
     ) -> list[OneWayOption]:
-        fli_executable = resolve_fli_cli_executable()
-        if fli_executable is None:
-            raise RuntimeError("未找到 fli CLI，请先安装 flights 包")
-
         query_currency = os.getenv("FLI_QUERY_CURRENCY") or currency.upper()
         language = os.getenv("FLI_LANGUAGE", "zh-CN")
         country = os.getenv("FLI_COUNTRY", "SG")
@@ -64,6 +60,10 @@ class FliProvider(FlightProvider):
                 log_event("fli.direct.failed", level=40, origin=origin, destination=destination, date=departure_date.isoformat(), error=exc)
                 if not os.getenv("ADV_SEARCH_FLIGHTS_FALLBACK_TO_CLI_ON_DIRECT_ERROR"):
                     raise RuntimeError(str(exc) or "Google Flights 查询失败") from exc
+
+        fli_executable = resolve_fli_cli_executable()
+        if fli_executable is None:
+            raise RuntimeError("未找到 fli CLI，且直接查询不可用")
 
         proc = await asyncio.create_subprocess_exec(
             fli_executable,

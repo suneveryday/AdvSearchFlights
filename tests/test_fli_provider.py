@@ -105,6 +105,37 @@ def test_fli_provider_uses_resolved_executable(monkeypatch) -> None:
     assert len(rows) == 1
 
 
+def test_direct_fli_does_not_require_a_separate_cli(monkeypatch) -> None:
+    called = False
+
+    def fake_direct_search(*args, **kwargs):
+        nonlocal called
+        called = True
+        return []
+
+    def fail_if_cli_is_resolved():
+        raise AssertionError("direct fli path must not resolve the external CLI")
+
+    monkeypatch.delenv("ADV_SEARCH_FLIGHTS_USE_FLI_CLI", raising=False)
+    monkeypatch.setattr("adv_search_flights.providers.fli._search_with_fli_api", fake_direct_search)
+    monkeypatch.setattr("adv_search_flights.providers.fli.resolve_fli_cli_executable", fail_if_cli_is_resolved)
+
+    rows = asyncio.run(
+        FliProvider().search_one_way(
+            "PVG",
+            "MEL",
+            date(2026, 9, 29),
+            1,
+            "CNY",
+            1,
+            600,
+        )
+    )
+
+    assert called is True
+    assert rows == []
+
+
 def test_error_response_code_is_diagnostic_only() -> None:
     payload = '["wrb.fr",null,null,null,null,[13,null,[["type.googleapis.com/travel.frontend.flights.ErrorResponse",[]]]]]'
     assert _diagnostic_error_response_code(payload) == 13

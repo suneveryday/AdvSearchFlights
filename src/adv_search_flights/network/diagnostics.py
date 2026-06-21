@@ -200,7 +200,17 @@ def _check_fli_cli() -> NetworkCheck:
     executable = resolve_fli_cli_executable()
     if executable:
         return NetworkCheck(name="fli_cli", status="ok", ok=True, message=f"找到 fli CLI：{executable}")
+    if _fli_runtime_available():
+        return NetworkCheck(name="fli_cli", status="ok", ok=True, message="内置 fli 运行时可用")
     return NetworkCheck(name="fli_cli", status="error", ok=False, message="未找到 fli CLI，请先安装 flights 包或确认 PATH")
+
+
+def _fli_runtime_available() -> bool:
+    try:
+        from fli.search import SearchFlights  # noqa: F401
+    except (ImportError, OSError):
+        return False
+    return True
 
 
 def _check_google_flights(timeout_seconds: float) -> NetworkCheck:

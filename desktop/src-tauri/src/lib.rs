@@ -740,6 +740,13 @@ fn resolve_cli_path() -> Option<PathBuf> {
         }
     }
 
+    if let Ok(current_exe) = std::env::current_exe() {
+        let bundled_cli = bundled_cli_path(&current_exe);
+        if bundled_cli.exists() {
+            return Some(bundled_cli);
+        }
+    }
+
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repo_venv_cli = manifest_dir
         .parent()
@@ -752,6 +759,13 @@ fn resolve_cli_path() -> Option<PathBuf> {
     }
 
     Some(PathBuf::from("adv-search-flights"))
+}
+
+fn bundled_cli_path(current_exe: &Path) -> PathBuf {
+    current_exe
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("farello-backend")
 }
 
 fn configure_child_path(command: &mut Command, cli: &Path) {
@@ -891,5 +905,14 @@ mod tests {
         assert!(script.contains("set operationKind to \"created\""));
         assert!(script.contains("https://example.com/outbound"));
         assert!(script.contains("https://example.com/inbound"));
+    }
+
+    #[test]
+    fn bundled_cli_is_resolved_next_to_the_app_executable() {
+        let current_exe = Path::new("/Applications/Farello.app/Contents/MacOS/farello-desktop");
+        assert_eq!(
+            bundled_cli_path(current_exe),
+            PathBuf::from("/Applications/Farello.app/Contents/MacOS/farello-backend")
+        );
     }
 }
