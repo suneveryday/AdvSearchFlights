@@ -1,6 +1,6 @@
 # AdvSearchFlights Architecture
 
-AdvSearchFlights is a pure Python backend package with a CLI entry point.
+AdvSearchFlights is a Python backend package with a CLI entry point and a macOS desktop GUI shell.
 
 ```text
 src/adv_search_flights/
@@ -11,6 +11,10 @@ src/adv_search_flights/
   output/       table, text, and JSON renderers
   providers/    fli, Skyscanner, mock, and auto fallback providers
   search/       orchestration, filtering, sorting, combination, validation
+  network/      proxy summary, provider error classification, and network diagnostics
+desktop/
+  src/          React/TypeScript GUI
+  src-tauri/    Tauri macOS shell and local gui-search command bridge
 ```
 
 ## Search flow
@@ -28,3 +32,26 @@ src/adv_search_flights/
 `auto` tries Google Flights through `fli` first. If it fails or returns no usable priced results, it tries the optional experimental Skyscanner provider when the third-party library is installed.
 
 `mock` is kept for deterministic tests and local development.
+
+## GUI flow
+
+The desktop GUI calls the Python backend through a local subprocess instead of a server:
+
+1. React maps the search form into the stable `gui-search` JSON payload.
+2. Tauri invokes the `gui_search` command.
+3. The command starts `adv-search-flights gui-search`, writes JSON to stdin, and parses stdout.
+4. The Python CLI returns an envelope with `response`, `network_status`, `provider_status`, and `error`.
+5. The GUI renders user-friendly network status, errors, results, and raw JSON details.
+
+When the React app runs in a normal browser instead of Tauri, it uses mock data so UI work can continue without a Python subprocess.
+
+## Network diagnostics
+
+`adv_search_flights.network` is intentionally independent from providers and GUI code. It owns:
+
+- proxy environment summaries with credential redaction
+- `fli` CLI availability checks
+- Google Flights reachability checks
+- classification of timeout, connection failure, rate limit, missing dependency, and no-result states
+
+This boundary keeps future network and monitoring work isolated from search orchestration.

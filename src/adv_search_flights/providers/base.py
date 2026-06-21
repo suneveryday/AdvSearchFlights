@@ -20,6 +20,6 @@ class FlightProvider(ABC):
         currency: str,
         max_stops: int,
         max_layover_minutes: int,
+        cabin_class: str = "ECONOMY",
     ) -> list[OneWayOption]:
         """Return normalized one-way flight options."""
-

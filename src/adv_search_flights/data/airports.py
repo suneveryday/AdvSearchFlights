@@ -22,4 +22,3 @@ def resolve_airports(value: str) -> list[str]:
 
 def normalize_city(value: str) -> str:
     return resolve_airports(value)[0]
-

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import time
@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from adv_search_flights.domain.errors import NonRetryableSearchError
+from adv_search_flights.diagnostics import log_event
 
 T = TypeVar("T")
 
@@ -15,9 +16,11 @@ class DataCallController:
         self,
         cooldown_seconds: int = 90,
         retry_delays: tuple[int, ...] = (30, 60, 90),
+        event_callback: Callable[[dict], None] | None = None,
     ) -> None:
         self.cooldown_seconds = cooldown_seconds
         self.retry_delays = retry_delays
+        self.event_callback = event_callback
         self._lock = asyncio.Lock()
         self._last_call_at = 0.0
 
@@ -35,8 +38,19 @@ class DataCallController:
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
                 if attempt >= len(self.retry_delays):
+                    log_event("provider.retry_exhausted", level=30, attempt=attempt, error=exc)
                     break
-                await asyncio.sleep(self.retry_delays[attempt])
+                delay = self.retry_delays[attempt]
+                log_event("provider.retry_waiting", level=30, attempt=attempt + 1, wait_seconds=delay, error=exc)
+                if self.event_callback:
+                    self.event_callback({
+                        "type": "provider_retry_waiting",
+                        "attempt": attempt + 1,
+                        "max_attempts": len(self.retry_delays),
+                        "wait_seconds": delay,
+                        "message": f"数据源暂时不可用，{delay} 秒后重试（{attempt + 1}/{len(self.retry_delays)}）",
+                    })
+                await asyncio.sleep(delay)
         if last_error is None:
             raise RuntimeError("数据调用失败")
         raise last_error

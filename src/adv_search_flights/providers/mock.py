@@ -20,6 +20,7 @@ class MockProvider(FlightProvider):
         currency: str,
         max_stops: int,
         max_layover_minutes: int,
+        cabin_class: str = "ECONOMY",
     ) -> list[OneWayOption]:
         base = datetime.combine(departure_date, datetime.min.time()).replace(hour=9)
         options = [
@@ -98,4 +99,3 @@ class MockProvider(FlightProvider):
     def _price(self, origin: str, destination: str, stops: int) -> int:
         seed = sum(ord(char) for char in origin + destination)
         return 1800 + (seed % 2400) + stops * 450
-

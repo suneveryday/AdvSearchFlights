@@ -33,4 +33,3 @@ def compare_provider_results(options: list[OneWayOption]) -> list[SourceComparis
             )
         )
     return comparisons
-

@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+from adv_search_flights.data.generated_airports import GENERATED_AIRPORT_NAME_ZH, GENERATED_CITY_AIRPORTS, GENERATED_CITY_TO_IATA
+
 AIRPORT_NAME_ZH = {
     "SHA": "上海虹桥国际机场",
     "PVG": "上海浦东国际机场",
@@ -36,6 +38,9 @@ AIRPORT_NAME_ZH = {
     "SFO": "旧金山国际机场",
 }
 
+for _code, _name in GENERATED_AIRPORT_NAME_ZH.items():
+    AIRPORT_NAME_ZH.setdefault(_code, _name)
+
 CITY_AIRPORTS = {
     "上海": ["PVG", "SHA"],
     "北京": ["PEK", "PKX"],
@@ -52,6 +57,9 @@ CITY_AIRPORTS = {
     "TYO": ["HND", "NRT"],
     "OSA": ["KIX", "ITM", "UKB"],
 }
+
+for _city, _airports in GENERATED_CITY_AIRPORTS.items():
+    CITY_AIRPORTS.setdefault(_city, _airports)
 
 CITY_TO_IATA = {
     "上海": "SHA",
@@ -73,6 +81,9 @@ CITY_TO_IATA = {
     "洛杉矶": "LAX",
     "旧金山": "SFO",
 }
+
+for _name, _code in GENERATED_CITY_TO_IATA.items():
+    CITY_TO_IATA.setdefault(_name, _code)
 
 AIRLINE_NAME_ZH = {
     "MU": "中国东方航空",

@@ -18,4 +18,3 @@ def sort_and_limit_results(results: list[CombinedResult], limit: int | None = No
     if limit is not None:
         return sorted_results[:limit]
     return sorted_results
-

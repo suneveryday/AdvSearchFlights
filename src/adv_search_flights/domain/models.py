@@ -20,6 +20,13 @@ class ProviderName(str, Enum):
     skyscanner = "skyscanner"
 
 
+class CabinClass(str, Enum):
+    economy = "ECONOMY"
+    premium_economy = "PREMIUM_ECONOMY"
+    business = "BUSINESS"
+    first = "FIRST"
+
+
 class SearchRequest(BaseModel):
     origin: str = Field(
         min_length=2,
@@ -37,6 +44,7 @@ class SearchRequest(BaseModel):
     max_layover_hours: float = Field(default=10.0, ge=0, description="Maximum layover duration per connection, in hours.")
     adults: int = Field(default=1, ge=1, le=9, description="Number of adult passengers.")
     currency: str = Field(default="CNY", min_length=3, max_length=3, description="Output currency. CNY is used for sorting and display.")
+    cabin_class: CabinClass = Field(default=CabinClass.economy, description="Cabin class: ECONOMY, PREMIUM_ECONOMY, BUSINESS, or FIRST.")
     limit: int | None = Field(default=None, ge=1, description="Maximum number of combined open-jaw results to return.")
 
     @property

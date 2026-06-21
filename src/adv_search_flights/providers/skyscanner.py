@@ -24,6 +24,7 @@ class SkyscannerProvider(FlightProvider):
         currency: str,
         max_stops: int,
         max_layover_minutes: int,
+        cabin_class: str = "ECONOMY",
     ) -> list[OneWayOption]:
         return await asyncio.to_thread(
             self._search_sync,
@@ -34,6 +35,7 @@ class SkyscannerProvider(FlightProvider):
             currency,
             max_stops,
             max_layover_minutes,
+            cabin_class,
         )
 
     def _search_sync(
@@ -45,6 +47,7 @@ class SkyscannerProvider(FlightProvider):
         currency: str,
         max_stops: int,
         max_layover_minutes: int,
+        cabin_class_name: str = "ECONOMY",
     ) -> list[OneWayOption]:
         scanner_cls, cabin_class = _load_skyscanner()
         scanner = scanner_cls(
@@ -63,7 +66,7 @@ class SkyscannerProvider(FlightProvider):
             origin=origin_airport,
             destination=destination_airport,
             depart_date=datetime.combine(departure_date, time.min),
-            cabinClass=cabin_class.ECONOMY,
+            cabinClass=getattr(cabin_class, cabin_class_name, cabin_class.ECONOMY),
             adults=adults,
         )
         options = self._normalize(response, origin, destination, departure_date)

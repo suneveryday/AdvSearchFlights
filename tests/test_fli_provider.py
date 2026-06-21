@@ -1,8 +1,12 @@
 ﻿from __future__ import annotations
 
+import asyncio
+import json
+from types import SimpleNamespace
 from datetime import date
+from datetime import datetime
 
-from adv_search_flights.providers.fli import FliProvider
+from adv_search_flights.providers.fli import FliProvider, _diagnostic_error_response_code, _option_from_fli_flight
 
 
 def test_fli_real_schema_is_normalized() -> None:
@@ -15,6 +19,7 @@ def test_fli_real_schema_is_normalized() -> None:
                 "stops": 1,
                 "price": 347.0,
                 "currency": "USD",
+                "booking_token": "token+with/slash",
                 "legs": [
                     {
                         "departure_airport": {"code": "JFK", "name": "John F Kennedy International Airport"},
@@ -51,3 +56,105 @@ def test_fli_real_schema_is_normalized() -> None:
     assert rows[0].segments[0].aircraft_zh == "波音 737MAX 8 客机"
     assert rows[0].layovers[0].airport == "CLT"
     assert rows[0].layovers[0].hours == 3.4
+    assert rows[0].raw["booking_token"] == "token+with/slash"
+
+
+def test_fli_provider_uses_resolved_executable(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            payload = {
+                "success": True,
+                "currency": "USD",
+                "flights": [
+                    {
+                        "price": 100,
+                        "currency": "USD",
+                        "legs": [
+                            {
+                                "departure_airport": {"code": "PVG"},
+                                "arrival_airport": {"code": "MEL"},
+                                "departure_time": "2026-09-29T10:00:00",
+                                "arrival_time": "2026-09-29T22:00:00",
+                                "airline": {"code": "MU", "name": "China Eastern"},
+                                "flight_number": "737",
+                            }
+                        ],
+                    }
+                ],
+            }
+            return json.dumps(payload).encode(), b""
+
+    async def fake_create_subprocess_exec(executable, *args, **kwargs):
+        captured["executable"] = executable
+        captured["args"] = list(args)
+        return FakeProcess()
+
+    monkeypatch.setattr("adv_search_flights.providers.fli.resolve_fli_cli_executable", lambda: "/tmp/project/.venv/bin/fli")
+    monkeypatch.setattr("adv_search_flights.providers.fli.asyncio.create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setenv("ADV_SEARCH_FLIGHTS_USE_FLI_CLI", "1")
+
+    rows = asyncio.run(FliProvider().search_one_way("PVG", "MEL", date(2026, 9, 29), 1, "CNY", 1, 600, cabin_class="BUSINESS"))
+
+    assert captured["executable"] == "/tmp/project/.venv/bin/fli"
+    assert "--class" in captured["args"]
+    assert captured["args"][captured["args"].index("--class") + 1] == "BUSINESS"
+    assert len(rows) == 1
+
+
+def test_error_response_code_is_diagnostic_only() -> None:
+    payload = '["wrb.fr",null,null,null,null,[13,null,[["type.googleapis.com/travel.frontend.flights.ErrorResponse",[]]]]]'
+    assert _diagnostic_error_response_code(payload) == 13
+    assert _diagnostic_error_response_code("ErrorResponse") is None
+
+
+def test_direct_fli_result_is_converted_to_one_way_option() -> None:
+    flight = SimpleNamespace(
+        price=3620.0,
+        currency="CNY",
+        booking_token="booking-token",
+        co2_emissions_g=53570,
+        legs=[
+            SimpleNamespace(
+                airline=SimpleNamespace(name="_5J", value="Cebu Pacific"),
+                flight_number="679",
+                departure_airport=SimpleNamespace(name="PVG"),
+                arrival_airport=SimpleNamespace(name="MNL"),
+                departure_datetime=datetime(2026, 9, 29, 1, 35),
+                arrival_datetime=datetime(2026, 9, 29, 5, 35),
+                aircraft="Airbus A320neo",
+            ),
+            SimpleNamespace(
+                airline=SimpleNamespace(name="_5J", value="Cebu Pacific"),
+                flight_number="49",
+                departure_airport=SimpleNamespace(name="MNL"),
+                arrival_airport=SimpleNamespace(name="MEL"),
+                departure_datetime=datetime(2026, 9, 29, 12, 55),
+                arrival_datetime=datetime(2026, 9, 29, 23, 10),
+                aircraft="Airbus A330-900neo",
+            ),
+        ],
+        layovers=[SimpleNamespace(airport=SimpleNamespace(name="MNL"), duration=440)],
+    )
+
+    option = _option_from_fli_flight(
+        flight,
+        "PVG",
+        "MEL",
+        date(2026, 9, 29),
+        raw_row=["raw"],
+        session_id="session-id",
+        cabin_class="BUSINESS",
+    )
+
+    assert option.price_cny == 3620
+    assert option.route == "PVG-MNL-MEL"
+    assert [segment.flight_number for segment in option.segments] == ["5J679", "5J49"]
+    assert option.layovers[0].airport == "MNL"
+    assert option.raw["booking_token"] == "booking-token"
+    assert option.raw["session_id"] == "session-id"
+    assert option.raw["emissions_g"] == 53570
+    assert option.raw["cabin_class"] == "BUSINESS"

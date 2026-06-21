@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "AdvSearchFlights"
-version = "0.1.0"
+version = "0.10.0"
 description = "Open-jaw flight search and monitoring with Google Flights first and optional Skyscanner fallback."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,7 @@ dependencies = [
   "httpx>=0.28",
   "pydantic>=2",
   "flights>=0.9.0",
+  "socksio>=1.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,19 @@
+[package]
+name = "farello-desktop"
+version = "0.10.0"
+description = "Farello macOS flight search desktop app"
+authors = ["Farello contributors"]
+edition = "2021"
+
+[lib]
+name = "farello_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-notification = "2"
