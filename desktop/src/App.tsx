@@ -108,14 +108,22 @@ function App() {
         allProxy: settings.all_proxy,
       };
       setForm((current) => ({ ...current, httpProxy: settings.http_proxy, allProxy: settings.all_proxy }));
-      void refreshNetwork(buildGuiSearchPayload(restoredForm), false);
+      void refreshNetwork(buildGuiSearchPayload(restoredForm), false, "startup").then(async (result) => {
+        if (result?.auto_configured) {
+          const latestSettings = await getAppSettings();
+          setAppSettings(latestSettings);
+          const latestForm = { ...restoredForm, httpProxy: latestSettings.http_proxy, allProxy: latestSettings.all_proxy };
+          setForm((current) => ({ ...current, httpProxy: latestSettings.http_proxy, allProxy: latestSettings.all_proxy }));
+          await configureScheduler(buildGuiSearchPayload(latestForm));
+        }
+      });
       configureAnalytics(settings);
       if (settings.analytics_consent === "unset" && analyticsAvailable()) setAnalyticsConsentOpen(true);
       if (settings.analytics_consent === "granted" && !appOpenedCaptured.current) {
         captureAppOpened();
         appOpenedCaptured.current = true;
       }
-    }).catch(() => { void refreshNetwork(buildGuiSearchPayload(defaultSearchForm), false); });
+    }).catch(() => { void refreshNetwork(buildGuiSearchPayload(defaultSearchForm), false, "startup"); });
   }, []);
 
   useEffect(() => {
@@ -191,18 +199,21 @@ function App() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  async function refreshNetwork(nextPayload = payload, showDialog = true) {
+  async function refreshNetwork(nextPayload = payload, showDialog = true, mode: "startup" | "manual" = showDialog ? "manual" : "startup") {
     if (showDialog) setNetworkDialogOpen(true);
     setNetworkLoading(true);
     try {
-      const result = await runNetworkCheck(nextPayload);
+      const result = await runNetworkCheck(nextPayload, mode);
       setNetwork(result);
       captureAnalytics("farello_network_check_finished", networkAnalyticsProperties(result, showDialog ? "manual" : "startup"));
+      return result;
     } catch (error) {
       setNetwork({
         status: "error",
         modules: [{ name: "network_check", label: "网络检测", status: "error", ok: false, message: errorMessage(error) }],
+        guide_status: "error",
       });
+      return null;
     } finally {
       setNetworkLoading(false);
     }
@@ -333,7 +344,7 @@ function App() {
       setAppSettings(settings);
       setForm(nextForm);
       await configureScheduler(nextPayload);
-      await refreshNetwork(nextPayload, false);
+      await refreshNetwork(nextPayload, false, "manual");
       setSettingsDialogOpen(false);
     } catch (error) {
       setSettingsError(errorMessage(error));
@@ -1013,9 +1024,9 @@ function SettingsDialog({
   return <DialogShell title="高级设置" description="网络代理与搜索执行策略" labelledBy="settings-dialog-title" className="settings-dialog" onClose={() => void onClose()} footer={<Button variant="primary" disabled={settingsSaving} onClick={() => void onClose()}>{settingsSaving ? "保存中…" : "完成"}</Button>}>
     <div className="settings-content">
       <SettingsGroup title="网络代理">
-        <SettingsRow title="HTTP / HTTPS" description="留空时继承应用运行环境。"><input value={form.httpProxy} placeholder="http://127.0.0.1:7893" onChange={(event) => onUpdate("httpProxy", event.target.value)} /></SettingsRow>
-        <SettingsRow title="ALL_PROXY" description="支持 socks5 代理。"><input value={form.allProxy} placeholder="socks5://127.0.0.1:7894" onChange={(event) => onUpdate("allProxy", event.target.value)} /></SettingsRow>
-        {!proxyConfigured ? <p className="settings-note settings-error">当前未保存代理。输入框中的灰色地址只是格式示例，不会自动启用。</p> : <p className="settings-note">代理将在点击“完成”后保存，并用于网络检测、手动搜索和定时搜索。</p>}
+        <SettingsRow title="HTTP / HTTPS" description="留空时先尝试直连 Google Flights，失败后自动检测可用代理。"><input className="proxy-input" value={form.httpProxy} placeholder="例如：http://127.0.0.1:7893" onChange={(event) => onUpdate("httpProxy", event.target.value)} /></SettingsRow>
+        <SettingsRow title="ALL_PROXY" description="支持 socks5 代理。"><input className="proxy-input" value={form.allProxy} placeholder="例如：socks5://127.0.0.1:7894" onChange={(event) => onUpdate("allProxy", event.target.value)} /></SettingsRow>
+        {!proxyConfigured ? <p className="settings-note settings-error">当前未保存代理。首次启动会先尝试直连 Google Flights；失败后才自动检测本地代理。</p> : <p className="settings-note">代理将在点击“完成”后保存，并用于网络检测、手动搜索和定时搜索。</p>}
         {settingsError ? <p className="settings-note settings-error" role="alert">{settingsError}</p> : null}
       </SettingsGroup>
       <SettingsGroup title="执行策略">

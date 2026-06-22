@@ -61,6 +61,7 @@ def main() -> None:
 
     network_parser = subparsers.add_parser("network-check", help="输出桌面 GUI 使用的模块化网络检测结果")
     network_parser.add_argument("--provider", choices=["auto", "mock", "fli", "skyscanner"], default="fli")
+    network_parser.add_argument("--mode", choices=["startup", "manual"], default="manual")
     network_parser.add_argument("--format", choices=["json"], default="json")
 
     history_list_parser = subparsers.add_parser("history-list", help="列出本地历史搜索批次")
@@ -150,7 +151,7 @@ def main() -> None:
         asyncio.run(_run_gui_search_command(args))
         return
     if args.command == "network-check":
-        print(json.dumps(diagnose_network_modules(args.provider), ensure_ascii=False, indent=2))
+        print(json.dumps(diagnose_network_modules(args.provider, mode=args.mode), ensure_ascii=False, indent=2))
         return
     if args.command == "history-list":
         print(json.dumps({"items": list_history(args.limit)}, ensure_ascii=False, indent=2))
@@ -344,9 +345,15 @@ async def run_gui_search_payload(raw_input: str | dict, *, check_network: bool =
         ).search(request)
         response = await asyncio.wait_for(search_operation, timeout=timeout_seconds) if timeout_seconds else await search_operation
     except asyncio.TimeoutError:
+        destination_count = len(request.destinations)
+        timeout_hint = (
+            "候选目的地较多，单程查询数量会明显增加。可以提高总超时、减少城市数量，或先用较少目的地验证网络后重试。"
+            if destination_count >= 5
+            else "可以减少目的地、提高单段或总超时后重试。"
+        )
         envelope = _gui_error(
             "search_timeout",
-            f"搜索超过 {timeout_seconds} 秒，已自动中止。可以减少目的地、提高单段或总超时后重试。",
+            f"搜索超过 {timeout_seconds} 秒，已自动中止。{timeout_hint}",
             provider=request.provider.value,
             network_status=network_status,
             warnings=[],

@@ -16,4 +16,16 @@ describe("network presentation", () => {
     expect(visibleNetworkModules(result).map((item) => item.name)).toEqual(["proxy", "google_flights"]);
     expect(visibleNetworkStatus(result)).toBe("ok");
   });
+
+  it("treats skipped proxy as ok when Google Flights is directly reachable", () => {
+    const result = {
+      status: "ok" as const,
+      modules: [
+        { name: "proxy", label: "代理配置", status: "skipped" as const, ok: null, message: "Google Flights 可直连，无需配置代理" },
+        { name: "google_flights", label: "Google Flights", status: "ok" as const, ok: true, message: "ok" },
+      ],
+    };
+
+    expect(visibleNetworkStatus(result)).toBe("ok");
+  });
 });

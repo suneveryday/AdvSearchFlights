@@ -59,6 +59,26 @@ def test_five_destination_progress_reports_25_directed_patterns() -> None:
     assert "25 种往返/开口组合" in combining["message"]
 
 
+def test_five_multi_airport_cities_keep_sequential_progress_within_total() -> None:
+    events: list[dict] = []
+    response = asyncio.run(FlightSearchEngine(
+        MockProvider(),
+        DataCallController(cooldown_seconds=0, retry_delays=()),
+        event_callback=events.append,
+    ).search(SearchRequest(
+        origin="上海",
+        destinations=["纽约", "伦敦", "巴黎", "东京", "大阪"],
+        departure="2026-09-01",
+        return_date="2026-09-15",
+        limit=50,
+    )))
+
+    progress_events = [event for event in events if "completed" in event and "total" in event]
+    assert response.result_count == 50
+    assert progress_events
+    assert all(event["completed"] <= event["total"] for event in progress_events)
+
+
 def test_destination_aliases_resolving_to_the_same_airports_are_searched_once() -> None:
     response = asyncio.run(_search(origin="SHA", destinations=["墨尔本", "Melbourne", "MEL"]))
 

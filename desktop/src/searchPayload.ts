@@ -15,7 +15,7 @@ export const defaultSearchForm: SearchFormState = {
   httpProxy: "",
   allProxy: "",
   fliTimeoutSeconds: 45,
-  guiTimeoutSeconds: 360,
+  guiTimeoutSeconds: 1200,
   maxConcurrentSearches: 1,
 };
 

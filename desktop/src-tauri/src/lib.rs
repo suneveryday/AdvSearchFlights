@@ -331,13 +331,16 @@ fn process_group_exists(pid: u32) -> bool {
 }
 
 #[tauri::command]
-fn network_check(payload: Value) -> Result<Value, String> {
+fn network_check(payload: Value, mode: Option<String>) -> Result<Value, String> {
     let cli = resolve_cli_path().ok_or_else(|| "无法找到 adv-search-flights。".to_string())?;
     let provider = payload.get("provider").and_then(Value::as_str).unwrap_or("fli");
+    let mode = mode.unwrap_or_else(|| "manual".to_string());
     let mut command = Command::new(&cli);
-    command.arg("network-check").arg("--provider").arg(provider).arg("--format").arg("json").stdout(Stdio::piped()).stderr(Stdio::piped());
+    command.arg("network-check").arg("--provider").arg(provider).arg("--mode").arg(&mode).arg("--format").arg("json").stdout(Stdio::piped()).stderr(Stdio::piped());
     configure_child_path(&mut command, &cli);
-    configure_proxy_env(&mut command, &payload);
+    if mode != "startup" {
+        configure_proxy_env(&mut command, &payload);
+    }
     let output = command.output().map_err(|error| format!("network-check 执行失败：{error}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -779,7 +782,7 @@ fn merge_scheduler_runtime(payload: &mut Value, runtime: Option<&Value>) {
     target.insert("cooldown_seconds".to_string(), Value::from(2));
     target.insert("retry_waits".to_string(), serde_json::json!([3, 8, 15]));
     target.insert("fli_timeout_seconds".to_string(), Value::from(45));
-    target.insert("gui_timeout_seconds".to_string(), Value::from(360));
+    target.insert("gui_timeout_seconds".to_string(), Value::from(1200));
     target.insert("max_concurrent_searches".to_string(), Value::from(1));
     let Some(source) = runtime.and_then(Value::as_object) else { return; };
     for key in [

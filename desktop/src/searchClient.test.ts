@@ -42,6 +42,24 @@ describe("search client", () => {
     expect(result.modules.map((item) => item.name)).toContain("google_flights");
   });
 
+  it("passes startup and manual modes to the Tauri network command", async () => {
+    const payload = buildGuiSearchPayload(defaultSearchForm);
+    const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
+    await runNetworkCheck(payload, "startup", async (command, args) => {
+      calls.push({ command, args });
+      return { status: "ok", modules: [], guide_status: "direct_ok" };
+    });
+    await runNetworkCheck(payload, "manual", async (command, args) => {
+      calls.push({ command, args });
+      return { status: "ok", modules: [], guide_status: "proxy_auto_configured" };
+    });
+
+    expect(calls).toEqual([
+      { command: "network_check", args: { payload, mode: "startup" } },
+      { command: "network_check", args: { payload, mode: "manual" } },
+    ]);
+  });
+
   it("does not expose mock search results as saved history outside Tauri", async () => {
     await expect(listHistory()).resolves.toEqual([]);
   });

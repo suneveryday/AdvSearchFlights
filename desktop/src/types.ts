@@ -313,4 +313,24 @@ export interface NetworkCheckModule {
 export interface NetworkCheckResult {
   status: "ok" | "warning" | "error" | string;
   modules: NetworkCheckModule[];
+  direct_google_flights?: NetworkCheckModule | null;
+  proxy_candidates?: Array<{
+    source: string;
+    http_proxy?: string | null;
+    all_proxy?: string | null;
+    status: string;
+    message?: string | null;
+    latency_ms?: number | null;
+  }>;
+  selected_proxy?: {
+    source: string;
+    http_proxy?: string | null;
+    all_proxy?: string | null;
+    status: string;
+    message?: string | null;
+    latency_ms?: number | null;
+  } | null;
+  auto_configured?: boolean;
+  manual_required?: boolean;
+  guide_status?: "direct_ok" | "proxy_auto_configured" | "needs_manual_proxy" | "checking" | "error" | string;
 }

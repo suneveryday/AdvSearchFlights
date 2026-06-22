@@ -8,6 +8,7 @@ type HistoryDeleteInvokeFn = (command: string, args: Record<string, unknown>) =>
 type ScheduleToggleInvokeFn = (command: string, args: Record<string, unknown>) => Promise<{ item: HistorySchedule }>;
 type ScheduleConfigureInvokeFn = (command: string, args: Record<string, unknown>) => Promise<{ item: HistorySchedule; immediate_queued: boolean }>;
 type SettingsInvokeFn = (command: string, args?: Record<string, unknown>) => Promise<{ item: AppSettings }>;
+type NetworkInvokeFn = (command: string, args: Record<string, unknown>) => Promise<NetworkCheckResult>;
 let demoScheduleEnabled = true;
 
 declare global {
@@ -58,13 +59,19 @@ export async function startGuiSearch(
   };
 }
 
-export async function runNetworkCheck(payload: GuiSearchPayload): Promise<NetworkCheckResult> {
+export async function runNetworkCheck(payload: GuiSearchPayload, mode: "startup" | "manual" = "manual", invokeFn?: NetworkInvokeFn): Promise<NetworkCheckResult> {
+  if (invokeFn) {
+    return invokeFn("network_check", { payload, mode });
+  }
   if (hasTauri()) {
-    return invoke<NetworkCheckResult>("network_check", { payload });
+    return invoke<NetworkCheckResult>("network_check", { payload, mode });
   }
   await wait(160);
   return {
     status: "ok",
+    guide_status: mode === "startup" ? "direct_ok" : "proxy_auto_configured",
+    auto_configured: false,
+    manual_required: false,
     modules: [
       { name: "proxy", label: "代理配置", status: "ok", ok: true, message: "已检测到代理环境" },
       { name: "fli_cli", label: "fli CLI", status: "ok", ok: true, message: "找到 fli CLI" },

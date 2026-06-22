@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -14,6 +16,7 @@ from pydantic import BaseModel, Field
 
 GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/suneveryday/AdvSearchFlights/releases/latest"
+PROXY_ENV_KEYS = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY")
 
 
 class NetworkCheck(BaseModel):
@@ -30,6 +33,15 @@ class ProxySummary(BaseModel):
     https_proxy: str | None = None
     all_proxy: str | None = None
     no_proxy: str | None = None
+
+
+class ProxyCandidate(BaseModel):
+    source: str
+    http_proxy: str | None = None
+    all_proxy: str | None = None
+    status: str = "unchecked"
+    message: str | None = None
+    latency_ms: int | None = None
 
 
 class NetworkDiagnostics(BaseModel):
@@ -77,7 +89,9 @@ def diagnose_network(provider: str, *, timeout_seconds: float = 3.0, check_googl
     return NetworkDiagnostics(proxy=summarize_proxy_env(), checks=checks)
 
 
-def diagnose_network_modules(provider: str = "fli", *, timeout_seconds: float = 3.0) -> dict[str, Any]:
+def diagnose_network_modules(provider: str = "fli", *, timeout_seconds: float = 3.0, mode: str = "manual") -> dict[str, Any]:
+    if mode == "startup":
+        return diagnose_startup_network_modules(provider, timeout_seconds=timeout_seconds)
     proxy = summarize_proxy_env()
     modules = [
         {
@@ -110,7 +124,108 @@ def diagnose_network_modules(provider: str = "fli", *, timeout_seconds: float = 
         status = "error"
     elif any(item["status"] == "warning" for item in modules):
         status = "warning"
-    return {"status": status, "modules": modules, "proxy": proxy.model_dump(mode="json")}
+    return {
+        "status": status,
+        "modules": modules,
+        "proxy": proxy.model_dump(mode="json"),
+        "direct_google_flights": None,
+        "proxy_candidates": [],
+        "selected_proxy": None,
+        "auto_configured": False,
+        "manual_required": status == "error" and not proxy.has_proxy,
+        "guide_status": "needs_manual_proxy" if status == "error" and not proxy.has_proxy else "direct_ok" if status == "ok" else "error",
+    }
+
+
+def diagnose_startup_network_modules(provider: str = "fli", *, timeout_seconds: float = 3.0) -> dict[str, Any]:
+    provider_name = provider.lower()
+    direct = _check_google_flights_with_proxy_env({}, timeout_seconds, clear_proxy=True)
+    if provider_name not in {"auto", "fli"} or direct.ok:
+        modules = [
+            {
+                "name": "proxy",
+                "label": "代理配置",
+                "status": "skipped",
+                "ok": None,
+                "message": "Google Flights 可直连，无需配置代理",
+            },
+            _module("google_flights", "Google Flights 页面", direct),
+        ]
+        return {
+            "status": "ok" if direct.ok else "warning",
+            "modules": modules,
+            "proxy": summarize_proxy_env({}).model_dump(mode="json"),
+            "direct_google_flights": _module("google_flights", "Google Flights 页面", direct),
+            "proxy_candidates": [],
+            "selected_proxy": None,
+            "auto_configured": False,
+            "manual_required": False,
+            "guide_status": "direct_ok" if direct.ok else "error",
+        }
+
+    candidates = _proxy_candidates()
+    selected: ProxyCandidate | None = None
+    selected_check: NetworkCheck | None = None
+    checked_candidates: list[ProxyCandidate] = []
+    for candidate in candidates:
+        env = _candidate_env(candidate)
+        check = _check_google_flights_with_proxy_env(env, timeout_seconds, clear_proxy=True)
+        candidate.status = "ok" if check.ok else check.status
+        candidate.message = check.message
+        candidate.latency_ms = check.latency_ms
+        checked_candidates.append(candidate)
+        if check.ok and selected is None:
+            selected = candidate
+            selected_check = check
+            break
+
+    if selected is not None:
+        _persist_proxy_candidate(selected)
+        proxy_summary = summarize_proxy_env(_candidate_env(selected))
+        modules = [
+            {
+                "name": "proxy",
+                "label": "代理配置",
+                "status": "ok",
+                "ok": True,
+                "message": f"已自动发现可用代理：{selected.source}",
+                "details": proxy_summary.model_dump(mode="json"),
+            },
+            _module("google_flights", "Google Flights 页面", selected_check or direct),
+        ]
+        return {
+            "status": "ok",
+            "modules": modules,
+            "proxy": proxy_summary.model_dump(mode="json"),
+            "direct_google_flights": _module("google_flights", "Google Flights 页面", direct),
+            "proxy_candidates": [_candidate_payload(item) for item in checked_candidates],
+            "selected_proxy": _candidate_payload(selected),
+            "auto_configured": True,
+            "manual_required": False,
+            "guide_status": "proxy_auto_configured",
+        }
+
+    modules = [
+        {
+            "name": "proxy",
+            "label": "代理配置",
+            "status": "error",
+            "ok": False,
+            "message": "无法自动发现可用代理，需要手动设置",
+        },
+        _module("google_flights", "Google Flights 页面", direct),
+    ]
+    return {
+        "status": "error",
+        "modules": modules,
+        "proxy": summarize_proxy_env({}).model_dump(mode="json"),
+        "direct_google_flights": _module("google_flights", "Google Flights 页面", direct),
+        "proxy_candidates": [_candidate_payload(item) for item in checked_candidates],
+        "selected_proxy": None,
+        "auto_configured": False,
+        "manual_required": True,
+        "guide_status": "needs_manual_proxy",
+    }
 
 
 def summarize_proxy_env(env: dict[str, str] | None = None) -> ProxySummary:
@@ -214,8 +329,18 @@ def _fli_runtime_available() -> bool:
 
 
 def _check_google_flights(timeout_seconds: float) -> NetworkCheck:
+    return _check_google_flights_with_proxy_env(None, timeout_seconds, clear_proxy=False)
+
+
+def _check_google_flights_with_proxy_env(env: dict[str, str] | None, timeout_seconds: float, *, clear_proxy: bool) -> NetworkCheck:
     start = time.monotonic()
+    previous = {key: os.environ.get(key) for key in PROXY_ENV_KEYS}
     try:
+        if clear_proxy:
+            for key in PROXY_ENV_KEYS:
+                os.environ.pop(key, None)
+        if env:
+            os.environ.update({key: value for key, value in env.items() if value})
         response = httpx.head(GOOGLE_FLIGHTS_URL, follow_redirects=True, timeout=timeout_seconds)
         latency_ms = int((time.monotonic() - start) * 1000)
         if response.status_code < 500:
@@ -242,6 +367,126 @@ def _check_google_flights(timeout_seconds: float) -> NetworkCheck:
     except Exception as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
         return NetworkCheck(name="google_flights", status="error", ok=False, message=f"Google Flights 检查失败：{exc}", latency_ms=latency_ms)
+    finally:
+        if clear_proxy:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
+def _proxy_candidates() -> list[ProxyCandidate]:
+    candidates: list[ProxyCandidate] = []
+    candidates.extend(_saved_proxy_candidates())
+    candidates.extend(_environment_proxy_candidates())
+    candidates.extend(_macos_proxy_candidates())
+    candidates.extend(_common_local_proxy_candidates())
+    result: list[ProxyCandidate] = []
+    seen: set[tuple[str | None, str | None]] = set()
+    for candidate in candidates:
+        key = (candidate.http_proxy, candidate.all_proxy)
+        if key == (None, None) or key in seen:
+            continue
+        seen.add(key)
+        result.append(candidate)
+    return result
+
+
+def _saved_proxy_candidates() -> list[ProxyCandidate]:
+    try:
+        from adv_search_flights.history import get_app_settings
+
+        settings = get_app_settings()
+    except Exception:
+        return []
+    return [
+        ProxyCandidate(
+            source="saved_settings",
+            http_proxy=settings.get("http_proxy") or None,
+            all_proxy=settings.get("all_proxy") or None,
+        )
+    ]
+
+
+def _environment_proxy_candidates() -> list[ProxyCandidate]:
+    http_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+    all_proxy = os.environ.get("ALL_PROXY") or os.environ.get("all_proxy")
+    return [ProxyCandidate(source="environment", http_proxy=http_proxy, all_proxy=all_proxy)]
+
+
+def _macos_proxy_candidates() -> list[ProxyCandidate]:
+    if sys.platform != "darwin":
+        return []
+    try:
+        output = subprocess.run(["scutil", "--proxy"], capture_output=True, text=True, timeout=2, check=False).stdout
+    except Exception:
+        return []
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        values[key.strip()] = value.strip()
+    candidates: list[ProxyCandidate] = []
+    if values.get("HTTPEnable") == "1" and values.get("HTTPProxy") and values.get("HTTPPort"):
+        candidates.append(ProxyCandidate(source="macos_http_proxy", http_proxy=f"http://{values['HTTPProxy']}:{values['HTTPPort']}"))
+    if values.get("HTTPSEnable") == "1" and values.get("HTTPSProxy") and values.get("HTTPSPort"):
+        candidates.append(ProxyCandidate(source="macos_https_proxy", http_proxy=f"http://{values['HTTPSProxy']}:{values['HTTPSPort']}"))
+    if values.get("SOCKSEnable") == "1" and values.get("SOCKSProxy") and values.get("SOCKSPort"):
+        candidates.append(ProxyCandidate(source="macos_socks_proxy", all_proxy=f"socks5://{values['SOCKSProxy']}:{values['SOCKSPort']}"))
+    return candidates
+
+
+def _common_local_proxy_candidates() -> list[ProxyCandidate]:
+    candidates: list[ProxyCandidate] = []
+    for port in (7893, 7890, 8080, 1087, 1080):
+        if _local_port_open(port):
+            candidates.append(ProxyCandidate(source=f"local_http_{port}", http_proxy=f"http://127.0.0.1:{port}"))
+    for port in (7894, 7891, 1086, 1080):
+        if _local_port_open(port):
+            candidates.append(ProxyCandidate(source=f"local_socks_{port}", all_proxy=f"socks5://127.0.0.1:{port}"))
+    return candidates
+
+
+def _local_port_open(port: int) -> bool:
+    with socket.socket() as sock:
+        sock.settimeout(0.2)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _candidate_env(candidate: ProxyCandidate) -> dict[str, str]:
+    env: dict[str, str] = {}
+    if candidate.http_proxy:
+        env.update({
+            "http_proxy": candidate.http_proxy,
+            "https_proxy": candidate.http_proxy,
+            "HTTP_PROXY": candidate.http_proxy,
+            "HTTPS_PROXY": candidate.http_proxy,
+        })
+    if candidate.all_proxy:
+        env.update({"all_proxy": candidate.all_proxy, "ALL_PROXY": candidate.all_proxy})
+    return env
+
+
+def _persist_proxy_candidate(candidate: ProxyCandidate) -> None:
+    try:
+        from adv_search_flights.history import update_app_settings
+
+        update_app_settings(http_proxy=candidate.http_proxy or "", all_proxy=candidate.all_proxy or "")
+    except Exception:
+        pass
+
+
+def _candidate_payload(candidate: ProxyCandidate) -> dict[str, Any]:
+    return {
+        "source": candidate.source,
+        "http_proxy": _redact_proxy(candidate.http_proxy),
+        "all_proxy": _redact_proxy(candidate.all_proxy),
+        "status": candidate.status,
+        "message": candidate.message,
+        "latency_ms": candidate.latency_ms,
+    }
 
 
 def _check_url(name: str, url: str, timeout_seconds: float) -> NetworkCheck:

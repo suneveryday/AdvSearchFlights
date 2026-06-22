@@ -3,6 +3,8 @@ from __future__ import annotations
 import httpx
 
 from adv_search_flights.network.diagnostics import (
+    NetworkCheck,
+    ProxyCandidate,
     classify_provider_message,
     diagnose_network,
     diagnose_network_modules,
@@ -87,3 +89,67 @@ def test_diagnose_network_modules_returns_named_modules(monkeypatch) -> None:
 
     assert result["status"] in {"ok", "warning"}
     assert {item["name"] for item in result["modules"]} >= {"proxy", "fli_cli", "google_flights", "github_releases"}
+
+
+def test_startup_network_direct_ok_skips_proxy_detection(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "adv_search_flights.network.diagnostics._check_google_flights_with_proxy_env",
+        lambda env, timeout_seconds, clear_proxy: NetworkCheck(name="google_flights", status="ok", ok=True, message="direct ok"),
+    )
+    monkeypatch.setattr("adv_search_flights.network.diagnostics._proxy_candidates", lambda: (_ for _ in ()).throw(AssertionError("proxy candidates should not be checked")))
+
+    result = diagnose_network_modules("fli", mode="startup")
+
+    assert result["status"] == "ok"
+    assert result["guide_status"] == "direct_ok"
+    assert result["auto_configured"] is False
+    assert result["manual_required"] is False
+    assert result["modules"][0]["message"] == "Google Flights 可直连，无需配置代理"
+
+
+def test_startup_network_auto_configures_first_working_proxy(monkeypatch) -> None:
+    checks: list[dict[str, str]] = []
+    persisted: list[ProxyCandidate] = []
+
+    def fake_check(env, timeout_seconds, clear_proxy):
+        checks.append(env)
+        if not env:
+            return NetworkCheck(name="google_flights", status="error", ok=False, message="direct failed")
+        return NetworkCheck(name="google_flights", status="ok", ok=True, message="proxy ok", latency_ms=12)
+
+    monkeypatch.setattr("adv_search_flights.network.diagnostics._check_google_flights_with_proxy_env", fake_check)
+    monkeypatch.setattr(
+        "adv_search_flights.network.diagnostics._proxy_candidates",
+        lambda: [ProxyCandidate(source="local_http_7893", http_proxy="http://127.0.0.1:7893")],
+    )
+    monkeypatch.setattr("adv_search_flights.network.diagnostics._persist_proxy_candidate", lambda candidate: persisted.append(candidate))
+
+    result = diagnose_network_modules("fli", mode="startup")
+
+    assert result["status"] == "ok"
+    assert result["guide_status"] == "proxy_auto_configured"
+    assert result["auto_configured"] is True
+    assert result["manual_required"] is False
+    assert result["selected_proxy"]["source"] == "local_http_7893"
+    assert persisted[0].http_proxy == "http://127.0.0.1:7893"
+    assert checks[0] == {}
+    assert checks[1]["https_proxy"] == "http://127.0.0.1:7893"
+
+
+def test_startup_network_requires_manual_proxy_when_all_candidates_fail(monkeypatch) -> None:
+    def fake_check(env, timeout_seconds, clear_proxy):
+        return NetworkCheck(name="google_flights", status="error", ok=False, message="failed")
+
+    monkeypatch.setattr("adv_search_flights.network.diagnostics._check_google_flights_with_proxy_env", fake_check)
+    monkeypatch.setattr(
+        "adv_search_flights.network.diagnostics._proxy_candidates",
+        lambda: [ProxyCandidate(source="local_http_7893", http_proxy="http://127.0.0.1:7893")],
+    )
+
+    result = diagnose_network_modules("fli", mode="startup")
+
+    assert result["status"] == "error"
+    assert result["guide_status"] == "needs_manual_proxy"
+    assert result["auto_configured"] is False
+    assert result["manual_required"] is True
+    assert result["modules"][0]["message"] == "无法自动发现可用代理，需要手动设置"
