@@ -238,12 +238,16 @@ function App() {
 
   async function cancelSearch() {
     if (!activeTask) return;
-    await activeTask.cancel();
-    activeTask.cleanup();
-    setActiveTask(null);
-    setViewState("error");
-    setErrors(["搜索已取消"]);
-    captureAnalytics("farello_search_cancelled", { source: "manual" });
+    try {
+      await activeTask.cancel();
+      activeTask.cleanup();
+      setActiveTask(null);
+      setViewState("error");
+      setErrors(["搜索已取消"]);
+      captureAnalytics("farello_search_cancelled", { source: "manual" });
+    } catch (error) {
+      setErrors([`取消搜索失败：${errorMessage(error)}`]);
+    }
   }
 
   function handleProgressEvent(event: SearchProgressEvent) {

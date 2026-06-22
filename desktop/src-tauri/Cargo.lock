@@ -933,6 +933,7 @@ dependencies = [
 name = "farello-desktop"
 version = "0.10.2"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "tauri",
