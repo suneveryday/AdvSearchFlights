@@ -13,8 +13,8 @@ from adv_search_flights.diagnostics import log_event
 from adv_search_flights.domain.models import OneWayOption, SearchRequest, SearchResponse
 from adv_search_flights.output.renderers import render_results
 from adv_search_flights.providers.base import FlightProvider
-from adv_search_flights.search.combiner import combine_open_jaw_results
-from adv_search_flights.search.filtering import filter_one_way_options, sort_and_limit_results
+from adv_search_flights.search.combiner import combination_candidate_count, combine_open_jaw_results
+from adv_search_flights.search.filtering import filter_one_way_options
 
 
 class FlightSearchEngine:
@@ -35,7 +35,7 @@ class FlightSearchEngine:
 
     async def search(self, request: SearchRequest) -> SearchResponse:
         origin_airports = resolve_airports(request.origin)
-        destination_groups = {destination: resolve_airports(destination) for destination in request.destinations}
+        destination_groups = _resolve_destination_groups(request.destinations)
         warnings: list[str] = []
         outbound_by_dest: dict[str, list[OneWayOption]] = {}
         inbound_by_dest: dict[str, list[OneWayOption]] = {}
@@ -91,9 +91,34 @@ class FlightSearchEngine:
                         self._event("leg_finished", completed=completed_legs, total=total_legs, origin=destination_airport, destination=origin_airport, date=request.return_date.isoformat(), direction="inbound", message=f"已完成 {completed_legs}/{total_legs}：{destination_airport}->{origin_airport}")
                         self._progress(completed_legs, total_legs, f"已完成 {completed_legs}/{total_legs}：{destination_airport}->{origin_airport}")
 
-        self._event("combining", completed=total_legs, total=total_legs, message="正在组合去程和回程结果")
-        combined = combine_open_jaw_results(outbound_by_dest, inbound_by_dest)
-        results = sort_and_limit_results(combined, request.limit)
+        destination_pair_count = len(destination_groups) ** 2
+        candidate_count = combination_candidate_count(outbound_by_dest, inbound_by_dest)
+        combination_started_at = time.monotonic()
+        self._event(
+            "combining",
+            completed=total_legs,
+            total=total_legs,
+            destination_count=len(destination_groups),
+            destination_pair_count=destination_pair_count,
+            message=f"正在比较 {len(destination_groups)} 个候选目的地的 {destination_pair_count} 种往返/开口组合",
+        )
+        log_event(
+            "combining.started",
+            destination_count=len(destination_groups),
+            destination_pair_count=destination_pair_count,
+            outbound_option_count=sum(map(len, outbound_by_dest.values())),
+            inbound_option_count=sum(map(len, inbound_by_dest.values())),
+            candidate_count=candidate_count,
+            limit=request.limit,
+        )
+        results = combine_open_jaw_results(outbound_by_dest, inbound_by_dest, request.limit)
+        log_event(
+            "combining.completed",
+            destination_pair_count=destination_pair_count,
+            candidate_count=candidate_count,
+            materialized_count=len(results),
+            duration_ms=round((time.monotonic() - combination_started_at) * 1000),
+        )
         destination_iatas = _unique(airport for airports in destination_groups.values() for airport in airports)
         response = SearchResponse(
             query=request,
@@ -232,8 +257,24 @@ class FlightSearchEngine:
 
 def estimate_leg_count(request: SearchRequest) -> int:
     origin_airports = resolve_airports(request.origin)
-    destination_groups = {destination: resolve_airports(destination) for destination in request.destinations}
+    destination_groups = _resolve_destination_groups(request.destinations)
     return _count_legs(origin_airports, destination_groups)
+
+
+def _resolve_destination_groups(destinations: list[str]) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {}
+    seen_airport_sets: set[tuple[str, ...]] = set()
+    for destination in destinations:
+        try:
+            airports = resolve_airports(destination)
+        except ValueError as exc:
+            raise ValueError(f"无法识别目的地“{destination}”：{exc}") from exc
+        semantic_key = tuple(sorted(airports))
+        if semantic_key in seen_airport_sets:
+            continue
+        seen_airport_sets.add(semantic_key)
+        groups[destination] = airports
+    return groups
 
 
 def _count_legs(origin_airports: list[str], destination_groups: dict[str, list[str]]) -> int:

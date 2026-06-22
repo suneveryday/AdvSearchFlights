@@ -38,6 +38,34 @@ def test_up_to_five_candidate_destinations_are_cross_combined() -> None:
     assert any(outbound != inbound for outbound, inbound in airport_pairs)
 
 
+def test_five_destination_progress_reports_25_directed_patterns() -> None:
+    events: list[dict] = []
+    response = asyncio.run(FlightSearchEngine(
+        MockProvider(),
+        DataCallController(cooldown_seconds=0, retry_delays=()),
+        event_callback=events.append,
+    ).search(SearchRequest(
+        origin="SHA",
+        destinations=["MEL", "SYD", "SIN", "NRT", "KIX"],
+        departure="2026-09-01",
+        return_date="2026-09-15",
+        limit=50,
+    )))
+
+    combining = next(event for event in events if event["type"] == "combining")
+    assert response.result_count == 50
+    assert combining["destination_count"] == 5
+    assert combining["destination_pair_count"] == 25
+    assert "25 种往返/开口组合" in combining["message"]
+
+
+def test_destination_aliases_resolving_to_the_same_airports_are_searched_once() -> None:
+    response = asyncio.run(_search(origin="SHA", destinations=["墨尔本", "Melbourne", "MEL"]))
+
+    assert response.destination_airport_options == {"墨尔本": ["MEL"]}
+    assert all(item.outbound_destination == item.inbound_origin == "MEL" for item in response.results)
+
+
 def test_more_than_five_candidate_destinations_is_rejected() -> None:
     with pytest.raises(ValidationError):
         SearchRequest(
@@ -102,6 +130,34 @@ def test_rate_limited_leg_is_skipped_while_other_airport_pair_returns_results() 
     assert response.result_count > 0
     assert any("429" in warning for warning in response.warnings)
     assert sum(event["type"] == "provider_retry_waiting" for event in events) == 6
+
+
+def test_failed_destination_is_skipped_when_another_round_trip_is_complete() -> None:
+    class SydneyFailureProvider(MockProvider):
+        async def search_one_way(self, origin, destination, *args, **kwargs):
+            if "SYD" in {origin, destination}:
+                raise RuntimeError("SYD test failure")
+            return await super().search_one_way(origin, destination, *args, **kwargs)
+
+    response = asyncio.run(FlightSearchEngine(
+        SydneyFailureProvider(),
+        DataCallController(cooldown_seconds=0, retry_delays=()),
+    ).search(SearchRequest(
+        origin="SHA",
+        destinations=["墨尔本", "悉尼"],
+        departure="2026-09-01",
+        return_date="2026-09-15",
+        limit=50,
+    )))
+
+    assert response.result_count > 0
+    assert all(item.outbound_destination == item.inbound_origin == "MEL" for item in response.results)
+    assert any("SYD test failure" in warning for warning in response.warnings)
+
+
+def test_unknown_destination_error_names_the_invalid_value() -> None:
+    with pytest.raises(ValueError, match="无法识别目的地“火星”"):
+        asyncio.run(_search(origin="SHA", destinations=["墨尔本", "火星"]))
 
 
 async def _search(origin: str, destinations: list[str]):

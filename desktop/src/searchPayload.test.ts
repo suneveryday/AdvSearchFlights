@@ -6,6 +6,17 @@ describe("search payload mapping", () => {
     expect(destinationsFromText("墨尔本, 悉尼\nMEL，悉尼")).toEqual(["墨尔本", "悉尼", "MEL"]);
   });
 
+  it("accepts slash, whitespace, semicolon, and mixed punctuation separators", () => {
+    expect(destinationsFromText("墨尔本/悉尼；东京 Osaka，SIN\n曼谷")).toEqual([
+      "墨尔本", "悉尼", "东京", "Osaka", "SIN", "曼谷",
+    ]);
+  });
+
+  it("preserves known multi-word cities while splitting adjacent cities", () => {
+    expect(destinationsFromText("New York Los Angeles")).toEqual(["New York", "Los Angeles"]);
+    expect(destinationsFromText("Kuala Lumpur / Ho Chi Minh City")).toEqual(["Kuala Lumpur", "Ho Chi Minh City"]);
+  });
+
   it("maps form state to gui-search JSON payload", () => {
     const payload = buildGuiSearchPayload({
       ...defaultSearchForm,
