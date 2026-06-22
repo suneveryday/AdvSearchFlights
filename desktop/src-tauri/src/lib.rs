@@ -530,6 +530,8 @@ fn app_settings_get() -> Result<Value, String> {
 fn app_settings_update(
     rate_limit_retry_minutes: Option<u32>,
     analytics_consent: Option<String>,
+    http_proxy: Option<String>,
+    all_proxy: Option<String>,
 ) -> Result<Value, String> {
     let mut args = Vec::new();
     if let Some(minutes) = rate_limit_retry_minutes {
@@ -537,6 +539,12 @@ fn app_settings_update(
     }
     if let Some(consent) = analytics_consent {
         args.extend(["--analytics-consent".to_string(), consent]);
+    }
+    if let Some(value) = http_proxy {
+        args.extend(["--http-proxy".to_string(), value]);
+    }
+    if let Some(value) = all_proxy {
+        args.extend(["--all-proxy".to_string(), value]);
     }
     args.extend(["--format".to_string(), "json".to_string()]);
     run_history_command("app-settings-update", &args)

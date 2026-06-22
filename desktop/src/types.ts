@@ -202,11 +202,15 @@ export interface AppSettings {
   rate_limit_retry_minutes: number;
   analytics_consent: "unset" | "granted" | "denied";
   analytics_install_id: string;
+  http_proxy: string;
+  all_proxy: string;
 }
 
 export interface AppSettingsUpdate {
   rate_limit_retry_minutes?: number;
   analytics_consent?: AppSettings["analytics_consent"];
+  http_proxy?: string;
+  all_proxy?: string;
 }
 
 export interface AlertPermissionStatus {

@@ -58,6 +58,23 @@ describe("search payload mapping", () => {
     expect(buildGuiSearchPayload({ ...defaultSearchForm, limit: 0 }).limit).toBeNull();
   });
 
+  it("maps saved proxy values into every child-process environment variant", () => {
+    const payload = buildGuiSearchPayload({
+      ...defaultSearchForm,
+      httpProxy: "http://127.0.0.1:7893",
+      allProxy: "socks5://127.0.0.1:7894",
+    });
+
+    expect(payload.proxy).toEqual({
+      http_proxy: "http://127.0.0.1:7893",
+      https_proxy: "http://127.0.0.1:7893",
+      HTTP_PROXY: "http://127.0.0.1:7893",
+      HTTPS_PROXY: "http://127.0.0.1:7893",
+      all_proxy: "socks5://127.0.0.1:7894",
+      ALL_PROXY: "socks5://127.0.0.1:7894",
+    });
+  });
+
   it("validates required fields", () => {
     const payload = buildGuiSearchPayload({ ...defaultSearchForm, origin: "", destinationsText: "" });
 

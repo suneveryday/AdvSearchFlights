@@ -76,6 +76,8 @@ function App() {
   const [networkLoading, setNetworkLoading] = useState(false);
   const [networkDialogOpen, setNetworkDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [analyticsConsentOpen, setAnalyticsConsentOpen] = useState(false);
   const [analyticsSaving, setAnalyticsSaving] = useState(false);
@@ -98,19 +100,22 @@ function App() {
   const displayedNetworkStatus = visibleNetworkStatus(network);
 
   useEffect(() => {
-    refreshNetwork(payload, false);
-  }, []);
-
-  useEffect(() => {
     void getAppSettings().then((settings) => {
       setAppSettings(settings);
+      const restoredForm = {
+        ...defaultSearchForm,
+        httpProxy: settings.http_proxy,
+        allProxy: settings.all_proxy,
+      };
+      setForm((current) => ({ ...current, httpProxy: settings.http_proxy, allProxy: settings.all_proxy }));
+      void refreshNetwork(buildGuiSearchPayload(restoredForm), false);
       configureAnalytics(settings);
       if (settings.analytics_consent === "unset" && analyticsAvailable()) setAnalyticsConsentOpen(true);
       if (settings.analytics_consent === "granted" && !appOpenedCaptured.current) {
         captureAppOpened();
         appOpenedCaptured.current = true;
       }
-    }).catch(() => undefined);
+    }).catch(() => { void refreshNetwork(buildGuiSearchPayload(defaultSearchForm), false); });
   }, []);
 
   useEffect(() => {
@@ -314,6 +319,29 @@ function App() {
     }
   }
 
+  async function saveSettingsAndClose() {
+    if (settingsSaving) return;
+    setSettingsSaving(true);
+    setSettingsError(null);
+    try {
+      const settings = await updateAppSettings({
+        http_proxy: form.httpProxy.trim(),
+        all_proxy: form.allProxy.trim(),
+      });
+      const nextForm = { ...form, httpProxy: settings.http_proxy, allProxy: settings.all_proxy };
+      const nextPayload = buildGuiSearchPayload(nextForm);
+      setAppSettings(settings);
+      setForm(nextForm);
+      await configureScheduler(nextPayload);
+      await refreshNetwork(nextPayload, false);
+      setSettingsDialogOpen(false);
+    } catch (error) {
+      setSettingsError(errorMessage(error));
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
   const allRows = envelope?.response?.rendered ?? [];
   const filterOptions = useMemo(() => buildResultFilterOptions(allRows), [allRows]);
   const tableRows = useMemo(() => sortAndFilter(allRows, sortKey, sortDirection, searchFilters), [
@@ -441,9 +469,11 @@ function App() {
           analyticsAvailable={analyticsAvailable()}
           analyticsSaving={analyticsSaving}
           analyticsError={analyticsError}
+          settingsSaving={settingsSaving}
+          settingsError={settingsError}
           onUpdate={updateField}
           onAnalyticsChange={(enabled) => void setAnalyticsConsent(enabled ? "granted" : "denied")}
-          onClose={() => setSettingsDialogOpen(false)}
+          onClose={saveSettingsAndClose}
         />
       ) : null}
       {commandPaletteOpen ? <CommandPalette
@@ -962,6 +992,8 @@ function SettingsDialog({
   analyticsAvailable: analyticsEnabled,
   analyticsSaving,
   analyticsError,
+  settingsSaving,
+  settingsError,
   onUpdate,
   onAnalyticsChange,
   onClose,
@@ -971,15 +1003,20 @@ function SettingsDialog({
   analyticsAvailable: boolean;
   analyticsSaving: boolean;
   analyticsError: string | null;
+  settingsSaving: boolean;
+  settingsError: string | null;
   onUpdate: <K extends keyof SearchFormState>(key: K, value: SearchFormState[K]) => void;
   onAnalyticsChange: (enabled: boolean) => void;
-  onClose: () => void;
+  onClose: () => void | Promise<void>;
 }) {
-  return <DialogShell title="高级设置" description="网络代理与搜索执行策略" labelledBy="settings-dialog-title" className="settings-dialog" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>完成</Button>}>
+  const proxyConfigured = Boolean(form.httpProxy.trim() || form.allProxy.trim());
+  return <DialogShell title="高级设置" description="网络代理与搜索执行策略" labelledBy="settings-dialog-title" className="settings-dialog" onClose={() => void onClose()} footer={<Button variant="primary" disabled={settingsSaving} onClick={() => void onClose()}>{settingsSaving ? "保存中…" : "完成"}</Button>}>
     <div className="settings-content">
       <SettingsGroup title="网络代理">
         <SettingsRow title="HTTP / HTTPS" description="留空时继承应用运行环境。"><input value={form.httpProxy} placeholder="http://127.0.0.1:7893" onChange={(event) => onUpdate("httpProxy", event.target.value)} /></SettingsRow>
         <SettingsRow title="ALL_PROXY" description="支持 socks5 代理。"><input value={form.allProxy} placeholder="socks5://127.0.0.1:7894" onChange={(event) => onUpdate("allProxy", event.target.value)} /></SettingsRow>
+        {!proxyConfigured ? <p className="settings-note settings-error">当前未保存代理。输入框中的灰色地址只是格式示例，不会自动启用。</p> : <p className="settings-note">代理将在点击“完成”后保存，并用于网络检测、手动搜索和定时搜索。</p>}
+        {settingsError ? <p className="settings-note settings-error" role="alert">{settingsError}</p> : null}
       </SettingsGroup>
       <SettingsGroup title="执行策略">
         <SettingsRow title="单段超时" description="单个航段请求的最长等待时间。"><input type="number" min="5" value={form.fliTimeoutSeconds} onChange={(event) => onUpdate("fliTimeoutSeconds", Number(event.target.value))} /><span className="control-suffix">秒</span></SettingsRow>

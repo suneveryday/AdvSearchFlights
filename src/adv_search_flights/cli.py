@@ -129,6 +129,8 @@ def main() -> None:
     app_settings_update_parser = subparsers.add_parser("app-settings-update", help="更新桌面应用设置")
     app_settings_update_parser.add_argument("--rate-limit-retry-minutes", type=int)
     app_settings_update_parser.add_argument("--analytics-consent", choices=["unset", "granted", "denied"])
+    app_settings_update_parser.add_argument("--http-proxy")
+    app_settings_update_parser.add_argument("--all-proxy")
     app_settings_update_parser.add_argument("--format", choices=["json"], default="json")
 
     diagnostics_parser = subparsers.add_parser("diagnostics-log", help="查看本地诊断日志")
@@ -222,6 +224,8 @@ def main() -> None:
             item = update_app_settings(
                 rate_limit_retry_minutes=args.rate_limit_retry_minutes,
                 analytics_consent=args.analytics_consent,
+                http_proxy=args.http_proxy,
+                all_proxy=args.all_proxy,
             )
         except ValueError as exc:
             parser.error(str(exc))

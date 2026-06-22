@@ -175,7 +175,7 @@ export async function updateHistorySchedule(groupId: string, status: ScheduleSta
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
-  if (!hasTauri()) return { rate_limit_retry_minutes: 5, analytics_consent: "unset", analytics_install_id: "browser-preview" };
+  if (!hasTauri()) return { rate_limit_retry_minutes: 5, analytics_consent: "unset", analytics_install_id: "browser-preview", http_proxy: "", all_proxy: "" };
   const response = await invoke<{ item: AppSettings }>("app_settings_get");
   return response.item;
 }
@@ -184,6 +184,8 @@ export async function updateAppSettings(update: AppSettingsUpdate, invokeFn?: Se
   const args = {
     rateLimitRetryMinutes: update.rate_limit_retry_minutes,
     analyticsConsent: update.analytics_consent,
+    httpProxy: update.http_proxy,
+    allProxy: update.all_proxy,
   };
   if (invokeFn) {
     const response = await invokeFn("app_settings_update", args);
@@ -193,6 +195,8 @@ export async function updateAppSettings(update: AppSettingsUpdate, invokeFn?: Se
     rate_limit_retry_minutes: update.rate_limit_retry_minutes ?? 5,
     analytics_consent: update.analytics_consent ?? "unset",
     analytics_install_id: "browser-preview",
+    http_proxy: update.http_proxy ?? "",
+    all_proxy: update.all_proxy ?? "",
   };
   const response = await invoke<{ item: AppSettings }>("app_settings_update", args);
   return response.item;

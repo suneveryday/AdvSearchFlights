@@ -66,21 +66,36 @@ describe("search client", () => {
     const settingsCalls: Array<{ command: string; args?: Record<string, unknown> }> = [];
     await updateAppSettings({ rate_limit_retry_minutes: 10 }, async (command, args) => {
       settingsCalls.push({ command, args });
-      return { item: { rate_limit_retry_minutes: 10, analytics_consent: "unset", analytics_install_id: "test-id" } };
+      return { item: { rate_limit_retry_minutes: 10, analytics_consent: "unset", analytics_install_id: "test-id", http_proxy: "", all_proxy: "" } };
     });
 
     expect(scheduleCalls).toEqual([{ command: "history_schedule_toggle", args: { groupId: "group-1", enabled: true } }]);
-    expect(settingsCalls).toEqual([{ command: "app_settings_update", args: { rateLimitRetryMinutes: 10, analyticsConsent: undefined } }]);
+    expect(settingsCalls).toEqual([{ command: "app_settings_update", args: { rateLimitRetryMinutes: 10, analyticsConsent: undefined, httpProxy: undefined, allProxy: undefined } }]);
   });
 
   it("updates analytics consent without overwriting unrelated settings", async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
     await updateAppSettings({ analytics_consent: "denied" }, async (command, args) => {
       calls.push({ command, args });
-      return { item: { rate_limit_retry_minutes: 5, analytics_consent: "denied", analytics_install_id: "test-id" } };
+      return { item: { rate_limit_retry_minutes: 5, analytics_consent: "denied", analytics_install_id: "test-id", http_proxy: "", all_proxy: "" } };
     });
 
-    expect(calls).toEqual([{ command: "app_settings_update", args: { rateLimitRetryMinutes: undefined, analyticsConsent: "denied" } }]);
+    expect(calls).toEqual([{ command: "app_settings_update", args: { rateLimitRetryMinutes: undefined, analyticsConsent: "denied", httpProxy: undefined, allProxy: undefined } }]);
+  });
+
+  it("persists proxy settings through the Tauri settings contract", async () => {
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    await updateAppSettings({ http_proxy: "http://127.0.0.1:7893", all_proxy: "socks5://127.0.0.1:7894" }, async (command, args) => {
+      calls.push({ command, args });
+      return { item: { rate_limit_retry_minutes: 5, analytics_consent: "unset", analytics_install_id: "test-id", http_proxy: "http://127.0.0.1:7893", all_proxy: "socks5://127.0.0.1:7894" } };
+    });
+
+    expect(calls).toEqual([{ command: "app_settings_update", args: {
+      rateLimitRetryMinutes: undefined,
+      analyticsConsent: undefined,
+      httpProxy: "http://127.0.0.1:7893",
+      allProxy: "socks5://127.0.0.1:7894",
+    } }]);
   });
 
   it("maps configurable schedules to the immediate queue command", async () => {
