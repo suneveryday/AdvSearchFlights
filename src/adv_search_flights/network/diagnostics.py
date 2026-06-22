@@ -132,29 +132,30 @@ def diagnose_network_modules(provider: str = "fli", *, timeout_seconds: float = 
         "proxy_candidates": [],
         "selected_proxy": None,
         "auto_configured": False,
-        "manual_required": status == "error" and not proxy.has_proxy,
-        "guide_status": "needs_manual_proxy" if status == "error" and not proxy.has_proxy else "direct_ok" if status == "ok" else "error",
+        "manual_required": False,
+        "guide_status": "direct_ok" if status == "ok" else "error",
     }
 
 
 def diagnose_startup_network_modules(provider: str = "fli", *, timeout_seconds: float = 3.0) -> dict[str, Any]:
     provider_name = provider.lower()
-    direct = _check_google_flights_with_proxy_env({}, timeout_seconds, clear_proxy=True)
+    direct = _check_google_flights(timeout_seconds)
     if provider_name not in {"auto", "fli"} or direct.ok:
+        current_proxy = summarize_proxy_env()
         modules = [
             {
                 "name": "proxy",
                 "label": "代理配置",
                 "status": "skipped",
                 "ok": None,
-                "message": "Google Flights 可直连，无需配置代理",
+                "message": "当前网络可访问 Google Flights，无需手动配置代理",
             },
             _module("google_flights", "Google Flights 页面", direct),
         ]
         return {
             "status": "ok" if direct.ok else "warning",
             "modules": modules,
-            "proxy": summarize_proxy_env({}).model_dump(mode="json"),
+            "proxy": current_proxy.model_dump(mode="json"),
             "direct_google_flights": _module("google_flights", "Google Flights 页面", direct),
             "proxy_candidates": [],
             "selected_proxy": None,
@@ -209,9 +210,9 @@ def diagnose_startup_network_modules(provider: str = "fli", *, timeout_seconds: 
         {
             "name": "proxy",
             "label": "代理配置",
-            "status": "error",
+            "status": "warning",
             "ok": False,
-            "message": "无法自动发现可用代理，需要手动设置",
+            "message": "当前网络无法访问 Google Flights；可在设置中手动填写代理作为排障选项",
         },
         _module("google_flights", "Google Flights 页面", direct),
     ]

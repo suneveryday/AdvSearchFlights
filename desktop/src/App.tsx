@@ -86,7 +86,7 @@ function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = globalThis.localStorage?.getItem("adv-search-flights-theme");
     if (saved === "light" || saved === "dark") return saved;
-    return globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return "dark";
   });
   const [sortKey, setSortKey] = useState<SortKey>("price");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -1021,12 +1021,12 @@ function SettingsDialog({
   onClose: () => void | Promise<void>;
 }) {
   const proxyConfigured = Boolean(form.httpProxy.trim() || form.allProxy.trim());
-  return <DialogShell title="高级设置" description="网络代理与搜索执行策略" labelledBy="settings-dialog-title" className="settings-dialog" onClose={() => void onClose()} footer={<Button variant="primary" disabled={settingsSaving} onClick={() => void onClose()}>{settingsSaving ? "保存中…" : "完成"}</Button>}>
+  return <DialogShell title="高级设置" description="网络排障与搜索执行策略" labelledBy="settings-dialog-title" className="settings-dialog" onClose={() => void onClose()} footer={<Button variant="primary" disabled={settingsSaving} onClick={() => void onClose()}>{settingsSaving ? "保存中…" : "完成"}</Button>}>
     <div className="settings-content">
-      <SettingsGroup title="网络代理">
-        <SettingsRow title="HTTP / HTTPS" description="留空时先尝试直连 Google Flights，失败后自动检测可用代理。"><input className="proxy-input" value={form.httpProxy} placeholder="例如：http://127.0.0.1:7893" onChange={(event) => onUpdate("httpProxy", event.target.value)} /></SettingsRow>
+      <SettingsGroup title="网络排障">
+        <SettingsRow title="HTTP / HTTPS" description="默认使用当前网络环境；只有搜索不可用时才需要手动填写。"><input className="proxy-input" value={form.httpProxy} placeholder="例如：http://127.0.0.1:7893" onChange={(event) => onUpdate("httpProxy", event.target.value)} /></SettingsRow>
         <SettingsRow title="ALL_PROXY" description="支持 socks5 代理。"><input className="proxy-input" value={form.allProxy} placeholder="例如：socks5://127.0.0.1:7894" onChange={(event) => onUpdate("allProxy", event.target.value)} /></SettingsRow>
-        {!proxyConfigured ? <p className="settings-note settings-error">当前未保存代理。首次启动会先尝试直连 Google Flights；失败后才自动检测本地代理。</p> : <p className="settings-note">代理将在点击“完成”后保存，并用于网络检测、手动搜索和定时搜索。</p>}
+        {!proxyConfigured ? <p className="settings-note">未填写代理时，Farello 会直接使用当前网络环境发起搜索。</p> : <p className="settings-note">代理将在点击“完成”后保存，并用于网络检测、手动搜索和定时搜索。</p>}
         {settingsError ? <p className="settings-note settings-error" role="alert">{settingsError}</p> : null}
       </SettingsGroup>
       <SettingsGroup title="执行策略">
