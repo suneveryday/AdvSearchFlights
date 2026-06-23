@@ -6,6 +6,30 @@ describe("search payload mapping", () => {
     expect(destinationsFromText("墨尔本, 悉尼\nMEL，悉尼")).toEqual(["墨尔本", "悉尼", "MEL"]);
   });
 
+  it("accepts slash, whitespace, semicolon, and mixed punctuation separators", () => {
+    expect(destinationsFromText("墨尔本/悉尼；东京 Osaka，SIN\n曼谷")).toEqual([
+      "墨尔本", "悉尼", "东京", "Osaka", "SIN", "曼谷",
+    ]);
+  });
+
+  it("preserves known multi-word cities while splitting adjacent cities", () => {
+    expect(destinationsFromText("New York Los Angeles")).toEqual(["New York", "Los Angeles"]);
+    expect(destinationsFromText("Kuala Lumpur / Ho Chi Minh City")).toEqual(["Kuala Lumpur", "Ho Chi Minh City"]);
+  });
+
+  it("keeps exactly five mixed city candidates valid", () => {
+    const payload = buildGuiSearchPayload({
+      ...defaultSearchForm,
+      origin: "上海",
+      destinationsText: "San Francisco New York Los Angeles Hong Kong Kuala Lumpur",
+      departure: "2026-09-01",
+      returnDate: "2026-09-15",
+    });
+
+    expect(payload.destinations).toEqual(["San Francisco", "New York", "Los Angeles", "Hong Kong", "Kuala Lumpur"]);
+    expect(validatePayload(payload)).not.toContain("最多支持 5 个候选目的地");
+  });
+
   it("maps form state to gui-search JSON payload", () => {
     const payload = buildGuiSearchPayload({
       ...defaultSearchForm,
@@ -27,6 +51,7 @@ describe("search payload mapping", () => {
     expect(payload.retry_waits).toEqual([3, 8, 15]);
     expect(payload.request_interval_min_seconds).toBe(3);
     expect(payload.request_interval_max_seconds).toBe(8);
+    expect(payload.gui_timeout_seconds).toBe(1200);
   });
 
   it("does not ship personal itinerary or proxy defaults", () => {
@@ -45,6 +70,23 @@ describe("search payload mapping", () => {
 
   it("keeps zero as the explicit unlimited result option", () => {
     expect(buildGuiSearchPayload({ ...defaultSearchForm, limit: 0 }).limit).toBeNull();
+  });
+
+  it("maps saved proxy values into every child-process environment variant", () => {
+    const payload = buildGuiSearchPayload({
+      ...defaultSearchForm,
+      httpProxy: "http://127.0.0.1:7893",
+      allProxy: "socks5://127.0.0.1:7894",
+    });
+
+    expect(payload.proxy).toEqual({
+      http_proxy: "http://127.0.0.1:7893",
+      https_proxy: "http://127.0.0.1:7893",
+      HTTP_PROXY: "http://127.0.0.1:7893",
+      HTTPS_PROXY: "http://127.0.0.1:7893",
+      all_proxy: "socks5://127.0.0.1:7894",
+      ALL_PROXY: "socks5://127.0.0.1:7894",
+    });
   });
 
   it("validates required fields", () => {

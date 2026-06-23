@@ -8,6 +8,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from adv_search_flights.data.reference_data import CITY_AIRPORTS, CITY_TO_IATA
 from adv_search_flights.diagnostics import log_event
@@ -398,6 +399,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('analytics_install_id', ?)",
         (str(uuid.uuid4()),),
     )
+    conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('http_proxy', '')")
+    conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('all_proxy', '')")
+    conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('first_network_check_succeeded', 'false')")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_search_batches_created_at ON search_batches(created_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_route_records_batch_rank ON route_records(batch_id, rank)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_history_group_batches_group ON history_group_batches(group_id)")
@@ -711,13 +715,16 @@ def get_app_settings() -> dict[str, Any]:
         _ensure_schema(conn)
         rows = conn.execute(
             "SELECT key, value FROM app_settings WHERE key IN "
-            "('rate_limit_retry_minutes', 'analytics_consent', 'analytics_install_id')"
+            "('rate_limit_retry_minutes', 'analytics_consent', 'analytics_install_id', 'http_proxy', 'all_proxy', 'first_network_check_succeeded')"
         ).fetchall()
     values = {row["key"]: row["value"] for row in rows}
     return {
         "rate_limit_retry_minutes": int(values.get("rate_limit_retry_minutes", "5")),
         "analytics_consent": values.get("analytics_consent", "unset"),
         "analytics_install_id": values["analytics_install_id"],
+        "http_proxy": values.get("http_proxy", ""),
+        "all_proxy": values.get("all_proxy", ""),
+        "first_network_check_succeeded": values.get("first_network_check_succeeded", "false"),
     }
 
 
@@ -725,8 +732,11 @@ def update_app_settings(
     *,
     rate_limit_retry_minutes: int | None = None,
     analytics_consent: str | None = None,
+    http_proxy: str | None = None,
+    all_proxy: str | None = None,
+    first_network_check_succeeded: str | None = None,
 ) -> dict[str, Any]:
-    if rate_limit_retry_minutes is None and analytics_consent is None:
+    if rate_limit_retry_minutes is None and analytics_consent is None and http_proxy is None and all_proxy is None and first_network_check_succeeded is None:
         raise ValueError("至少需要更新一个设置项")
     if rate_limit_retry_minutes is not None:
         minutes = int(rate_limit_retry_minutes)
@@ -734,6 +744,10 @@ def update_app_settings(
             raise ValueError("限频重试等待需设置为 5 到 20 分钟")
     if analytics_consent is not None and analytics_consent not in {"unset", "granted", "denied"}:
         raise ValueError("匿名统计授权状态无效")
+    if first_network_check_succeeded is not None and first_network_check_succeeded not in {"true", "false"}:
+        raise ValueError("首次网络检测状态无效")
+    http_proxy = _validated_proxy(http_proxy, {"http", "https"}, "HTTP / HTTPS 代理")
+    all_proxy = _validated_proxy(all_proxy, {"http", "https", "socks5", "socks5h"}, "ALL_PROXY")
     with _connect() as conn:
         _ensure_schema(conn)
         if rate_limit_retry_minutes is not None:
@@ -746,7 +760,28 @@ def update_app_settings(
                 "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('analytics_consent', ?)",
                 (analytics_consent,),
             )
+        if http_proxy is not None:
+            conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('http_proxy', ?)", (http_proxy,))
+        if all_proxy is not None:
+            conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('all_proxy', ?)", (all_proxy,))
+        if first_network_check_succeeded is not None:
+            conn.execute(
+                "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('first_network_check_succeeded', ?)",
+                (first_network_check_succeeded,),
+            )
     return get_app_settings()
+
+
+def _validated_proxy(value: str | None, schemes: set[str], label: str) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    if parsed.scheme.lower() not in schemes or not parsed.hostname or parsed.port is None:
+        raise ValueError(f"{label}格式无效")
+    return normalized
 
 
 def list_history_schedules() -> list[dict[str, Any]]:

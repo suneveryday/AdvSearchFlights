@@ -202,11 +202,17 @@ export interface AppSettings {
   rate_limit_retry_minutes: number;
   analytics_consent: "unset" | "granted" | "denied";
   analytics_install_id: string;
+  http_proxy: string;
+  all_proxy: string;
+  first_network_check_succeeded: "true" | "false";
 }
 
 export interface AppSettingsUpdate {
   rate_limit_retry_minutes?: number;
   analytics_consent?: AppSettings["analytics_consent"];
+  http_proxy?: string;
+  all_proxy?: string;
+  first_network_check_succeeded?: AppSettings["first_network_check_succeeded"];
 }
 
 export interface AlertPermissionStatus {
@@ -309,4 +315,25 @@ export interface NetworkCheckModule {
 export interface NetworkCheckResult {
   status: "ok" | "warning" | "error" | string;
   modules: NetworkCheckModule[];
+  direct_google_flights?: NetworkCheckModule | null;
+  proxy_candidates?: Array<{
+    source: string;
+    http_proxy?: string | null;
+    all_proxy?: string | null;
+    status: string;
+    message?: string | null;
+    latency_ms?: number | null;
+  }>;
+  selected_proxy?: {
+    source: string;
+    http_proxy?: string | null;
+    all_proxy?: string | null;
+    status: string;
+    message?: string | null;
+    latency_ms?: number | null;
+  } | null;
+  auto_configured?: boolean;
+  manual_required?: boolean;
+  user_message?: string;
+  guide_status?: "direct_ok" | "proxy_auto_configured" | "needs_manual_proxy" | "checking" | "error" | string;
 }

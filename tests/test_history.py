@@ -464,6 +464,30 @@ def test_app_settings_persist_anonymous_analytics_consent_and_install_id(tmp_pat
         update_app_settings(analytics_consent="invalid")
 
 
+def test_app_settings_persist_and_validate_proxy_urls(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ADV_SEARCH_FLIGHTS_HISTORY_DB", str(tmp_path / "history.sqlite3"))
+
+    initial = get_app_settings()
+    assert initial["http_proxy"] == ""
+    assert initial["all_proxy"] == ""
+
+    updated = update_app_settings(
+        http_proxy=" http://127.0.0.1:7893 ",
+        all_proxy="socks5://127.0.0.1:7894",
+    )
+    assert updated["http_proxy"] == "http://127.0.0.1:7893"
+    assert updated["all_proxy"] == "socks5://127.0.0.1:7894"
+    assert get_app_settings()["http_proxy"] == "http://127.0.0.1:7893"
+
+    cleared = update_app_settings(http_proxy="", all_proxy="")
+    assert cleared["http_proxy"] == ""
+    assert cleared["all_proxy"] == ""
+    with pytest.raises(ValueError, match="HTTP / HTTPS 代理格式无效"):
+        update_app_settings(http_proxy="127.0.0.1:7893")
+    with pytest.raises(ValueError, match="ALL_PROXY格式无效"):
+        update_app_settings(all_proxy="ftp://127.0.0.1:7894")
+
+
 def test_app_settings_cli_supports_partial_analytics_updates(tmp_path, monkeypatch, capsys) -> None:
     monkeypatch.setenv("ADV_SEARCH_FLIGHTS_HISTORY_DB", str(tmp_path / "history.sqlite3"))
     monkeypatch.setattr(
@@ -477,6 +501,26 @@ def test_app_settings_cli_supports_partial_analytics_updates(tmp_path, monkeypat
     payload = json.loads(capsys.readouterr().out)
     assert payload["item"]["analytics_consent"] == "denied"
     assert payload["item"]["rate_limit_retry_minutes"] == 5
+
+
+def test_app_settings_cli_persists_proxy_values(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("ADV_SEARCH_FLIGHTS_HISTORY_DB", str(tmp_path / "history.sqlite3"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "adv-search-flights", "app-settings-update",
+            "--http-proxy", "http://127.0.0.1:7893",
+            "--all-proxy", "socks5://127.0.0.1:7894",
+            "--format", "json",
+        ],
+    )
+
+    main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["item"]["http_proxy"] == "http://127.0.0.1:7893"
+    assert payload["item"]["all_proxy"] == "socks5://127.0.0.1:7894"
 
 
 async def _mock_search(provider: str, origin: str, destinations: list[str]):

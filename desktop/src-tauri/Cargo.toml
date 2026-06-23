@@ -1,6 +1,6 @@
 [package]
 name = "farello-desktop"
-version = "0.10.1"
+version = "0.10.5"
 description = "Farello macOS flight search desktop app"
 authors = ["Farello contributors"]
 edition = "2021"
@@ -17,3 +17,4 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-notification = "2"
+libc = "0.2"

@@ -370,6 +370,10 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.12);
 }
 
+.proxy-input:focus::placeholder {
+  color: transparent;
+}
+
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   margin: 0;

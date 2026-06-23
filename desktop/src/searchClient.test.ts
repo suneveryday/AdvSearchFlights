@@ -42,6 +42,24 @@ describe("search client", () => {
     expect(result.modules.map((item) => item.name)).toContain("google_flights");
   });
 
+  it("passes first-run and manual modes to the Tauri network command", async () => {
+    const payload = buildGuiSearchPayload(defaultSearchForm);
+    const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
+    await runNetworkCheck(payload, "first_run", async (command, args) => {
+      calls.push({ command, args });
+      return { status: "ok", modules: [], guide_status: "direct_ok" };
+    });
+    await runNetworkCheck(payload, "manual", async (command, args) => {
+      calls.push({ command, args });
+      return { status: "ok", modules: [], guide_status: "proxy_auto_configured" };
+    });
+
+    expect(calls).toEqual([
+      { command: "network_check", args: { payload, mode: "first_run" } },
+      { command: "network_check", args: { payload, mode: "manual" } },
+    ]);
+  });
+
   it("does not expose mock search results as saved history outside Tauri", async () => {
     await expect(listHistory()).resolves.toEqual([]);
   });
@@ -66,21 +84,53 @@ describe("search client", () => {
     const settingsCalls: Array<{ command: string; args?: Record<string, unknown> }> = [];
     await updateAppSettings({ rate_limit_retry_minutes: 10 }, async (command, args) => {
       settingsCalls.push({ command, args });
-      return { item: { rate_limit_retry_minutes: 10, analytics_consent: "unset", analytics_install_id: "test-id" } };
+      return { item: { rate_limit_retry_minutes: 10, analytics_consent: "unset", analytics_install_id: "test-id", http_proxy: "", all_proxy: "", first_network_check_succeeded: "false" } };
     });
 
     expect(scheduleCalls).toEqual([{ command: "history_schedule_toggle", args: { groupId: "group-1", enabled: true } }]);
-    expect(settingsCalls).toEqual([{ command: "app_settings_update", args: { rateLimitRetryMinutes: 10, analyticsConsent: undefined } }]);
+    expect(settingsCalls).toEqual([{ command: "app_settings_update", args: { rateLimitRetryMinutes: 10, analyticsConsent: undefined, httpProxy: undefined, allProxy: undefined, firstNetworkCheckSucceeded: undefined } }]);
   });
 
   it("updates analytics consent without overwriting unrelated settings", async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
     await updateAppSettings({ analytics_consent: "denied" }, async (command, args) => {
       calls.push({ command, args });
-      return { item: { rate_limit_retry_minutes: 5, analytics_consent: "denied", analytics_install_id: "test-id" } };
+      return { item: { rate_limit_retry_minutes: 5, analytics_consent: "denied", analytics_install_id: "test-id", http_proxy: "", all_proxy: "", first_network_check_succeeded: "false" } };
     });
 
-    expect(calls).toEqual([{ command: "app_settings_update", args: { rateLimitRetryMinutes: undefined, analyticsConsent: "denied" } }]);
+    expect(calls).toEqual([{ command: "app_settings_update", args: { rateLimitRetryMinutes: undefined, analyticsConsent: "denied", httpProxy: undefined, allProxy: undefined, firstNetworkCheckSucceeded: undefined } }]);
+  });
+
+  it("persists proxy settings through the Tauri settings contract", async () => {
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    await updateAppSettings({ http_proxy: "http://127.0.0.1:7893", all_proxy: "socks5://127.0.0.1:7894" }, async (command, args) => {
+      calls.push({ command, args });
+      return { item: { rate_limit_retry_minutes: 5, analytics_consent: "unset", analytics_install_id: "test-id", http_proxy: "http://127.0.0.1:7893", all_proxy: "socks5://127.0.0.1:7894", first_network_check_succeeded: "false" } };
+    });
+
+    expect(calls).toEqual([{ command: "app_settings_update", args: {
+      rateLimitRetryMinutes: undefined,
+      analyticsConsent: undefined,
+      httpProxy: "http://127.0.0.1:7893",
+      allProxy: "socks5://127.0.0.1:7894",
+      firstNetworkCheckSucceeded: undefined,
+    } }]);
+  });
+
+  it("persists first network check completion through settings", async () => {
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    await updateAppSettings({ first_network_check_succeeded: "true" }, async (command, args) => {
+      calls.push({ command, args });
+      return { item: { rate_limit_retry_minutes: 5, analytics_consent: "unset", analytics_install_id: "test-id", http_proxy: "", all_proxy: "", first_network_check_succeeded: "true" } };
+    });
+
+    expect(calls).toEqual([{ command: "app_settings_update", args: {
+      rateLimitRetryMinutes: undefined,
+      analyticsConsent: undefined,
+      httpProxy: undefined,
+      allProxy: undefined,
+      firstNetworkCheckSucceeded: "true",
+    } }]);
   });
 
   it("maps configurable schedules to the immediate queue command", async () => {

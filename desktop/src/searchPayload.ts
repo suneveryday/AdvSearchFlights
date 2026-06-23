@@ -15,16 +15,58 @@ export const defaultSearchForm: SearchFormState = {
   httpProxy: "",
   allProxy: "",
   fliTimeoutSeconds: 45,
-  guiTimeoutSeconds: 360,
+  guiTimeoutSeconds: 1200,
   maxConcurrentSearches: 1,
 };
 
+const MULTI_WORD_LOCATIONS = [
+  "Ho Chi Minh City",
+  "Dar es Salaam",
+  "Rio de Janeiro",
+  "Abu Dhabi",
+  "Addis Ababa",
+  "Buenos Aires",
+  "Cape Town",
+  "Chiang Mai",
+  "Hong Kong",
+  "Kota Kinabalu",
+  "Kuala Lumpur",
+  "Las Vegas",
+  "Los Angeles",
+  "New York",
+  "Phnom Penh",
+  "Port Moresby",
+  "Saint Petersburg",
+  "San Francisco",
+  "Siem Reap",
+  "São Paulo",
+  "Tel Aviv",
+].map((location) => location.toUpperCase().split(" "));
+
 export function destinationsFromText(value: string): string[] {
   return value
-    .split(/[,，\n]/)
-    .map((item) => item.trim())
+    .split(/[,，;；/／\n]+/)
+    .flatMap(splitLocationChunk)
     .filter(Boolean)
     .filter((item, index, array) => array.findIndex((candidate) => candidate.toUpperCase() === item.toUpperCase()) === index);
+}
+
+function splitLocationChunk(value: string): string[] {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  const locations: string[] = [];
+  for (let index = 0; index < words.length;) {
+    const match = MULTI_WORD_LOCATIONS.find((candidate) =>
+      candidate.every((word, offset) => words[index + offset]?.toUpperCase() === word),
+    );
+    if (match) {
+      locations.push(words.slice(index, index + match.length).join(" "));
+      index += match.length;
+    } else {
+      locations.push(words[index]);
+      index += 1;
+    }
+  }
+  return locations;
 }
 
 export function buildGuiSearchPayload(form: SearchFormState): GuiSearchPayload {

@@ -8,6 +8,7 @@ type HistoryDeleteInvokeFn = (command: string, args: Record<string, unknown>) =>
 type ScheduleToggleInvokeFn = (command: string, args: Record<string, unknown>) => Promise<{ item: HistorySchedule }>;
 type ScheduleConfigureInvokeFn = (command: string, args: Record<string, unknown>) => Promise<{ item: HistorySchedule; immediate_queued: boolean }>;
 type SettingsInvokeFn = (command: string, args?: Record<string, unknown>) => Promise<{ item: AppSettings }>;
+type NetworkInvokeFn = (command: string, args: Record<string, unknown>) => Promise<NetworkCheckResult>;
 let demoScheduleEnabled = true;
 
 declare global {
@@ -58,13 +59,20 @@ export async function startGuiSearch(
   };
 }
 
-export async function runNetworkCheck(payload: GuiSearchPayload): Promise<NetworkCheckResult> {
+export async function runNetworkCheck(payload: GuiSearchPayload, mode: "first_run" | "startup" | "manual" = "manual", invokeFn?: NetworkInvokeFn): Promise<NetworkCheckResult> {
+  if (invokeFn) {
+    return invokeFn("network_check", { payload, mode });
+  }
   if (hasTauri()) {
-    return invoke<NetworkCheckResult>("network_check", { payload });
+    return invoke<NetworkCheckResult>("network_check", { payload, mode });
   }
   await wait(160);
   return {
     status: "ok",
+    guide_status: mode === "manual" ? "proxy_auto_configured" : "direct_ok",
+    user_message: "网络检测通过",
+    auto_configured: false,
+    manual_required: false,
     modules: [
       { name: "proxy", label: "代理配置", status: "ok", ok: true, message: "已检测到代理环境" },
       { name: "fli_cli", label: "fli CLI", status: "ok", ok: true, message: "找到 fli CLI" },
@@ -175,7 +183,7 @@ export async function updateHistorySchedule(groupId: string, status: ScheduleSta
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
-  if (!hasTauri()) return { rate_limit_retry_minutes: 5, analytics_consent: "unset", analytics_install_id: "browser-preview" };
+  if (!hasTauri()) return { rate_limit_retry_minutes: 5, analytics_consent: "unset", analytics_install_id: "browser-preview", http_proxy: "", all_proxy: "", first_network_check_succeeded: "false" };
   const response = await invoke<{ item: AppSettings }>("app_settings_get");
   return response.item;
 }
@@ -184,6 +192,9 @@ export async function updateAppSettings(update: AppSettingsUpdate, invokeFn?: Se
   const args = {
     rateLimitRetryMinutes: update.rate_limit_retry_minutes,
     analyticsConsent: update.analytics_consent,
+    httpProxy: update.http_proxy,
+    allProxy: update.all_proxy,
+    firstNetworkCheckSucceeded: update.first_network_check_succeeded,
   };
   if (invokeFn) {
     const response = await invokeFn("app_settings_update", args);
@@ -193,6 +204,9 @@ export async function updateAppSettings(update: AppSettingsUpdate, invokeFn?: Se
     rate_limit_retry_minutes: update.rate_limit_retry_minutes ?? 5,
     analytics_consent: update.analytics_consent ?? "unset",
     analytics_install_id: "browser-preview",
+    http_proxy: update.http_proxy ?? "",
+    all_proxy: update.all_proxy ?? "",
+    first_network_check_succeeded: update.first_network_check_succeeded ?? "false",
   };
   const response = await invoke<{ item: AppSettings }>("app_settings_update", args);
   return response.item;

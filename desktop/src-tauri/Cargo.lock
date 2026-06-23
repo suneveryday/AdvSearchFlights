@@ -931,8 +931,9 @@ dependencies = [
 
 [[package]]
 name = "farello-desktop"
-version = "0.10.1"
+version = "0.10.5"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "tauri",

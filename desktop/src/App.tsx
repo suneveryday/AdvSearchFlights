@@ -75,7 +75,11 @@ function App() {
   const [network, setNetwork] = useState<NetworkCheckResult | null>(null);
   const [networkLoading, setNetworkLoading] = useState(false);
   const [networkDialogOpen, setNetworkDialogOpen] = useState(false);
+  const [networkDialogFirstRun, setNetworkDialogFirstRun] = useState(false);
+  const [networkSaving, setNetworkSaving] = useState(false);
+  const [networkError, setNetworkError] = useState<string | null>(null);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [analyticsConsentOpen, setAnalyticsConsentOpen] = useState(false);
   const [analyticsSaving, setAnalyticsSaving] = useState(false);
@@ -84,7 +88,7 @@ function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = globalThis.localStorage?.getItem("adv-search-flights-theme");
     if (saved === "light" || saved === "dark") return saved;
-    return globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return "dark";
   });
   const [sortKey, setSortKey] = useState<SortKey>("price");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -98,19 +102,30 @@ function App() {
   const displayedNetworkStatus = visibleNetworkStatus(network);
 
   useEffect(() => {
-    refreshNetwork(payload, false);
-  }, []);
-
-  useEffect(() => {
-    void getAppSettings().then((settings) => {
-      setAppSettings(settings);
-      configureAnalytics(settings);
-      if (settings.analytics_consent === "unset" && analyticsAvailable()) setAnalyticsConsentOpen(true);
-      if (settings.analytics_consent === "granted" && !appOpenedCaptured.current) {
-        captureAppOpened();
-        appOpenedCaptured.current = true;
-      }
-    }).catch(() => undefined);
+    setNetwork({
+      status: "warning",
+      guide_status: "checking",
+      auto_configured: false,
+      manual_required: false,
+      modules: [{ name: "startup", label: "网络检测", status: "skipped", ok: null, message: "启动时不阻塞主界面；搜索前会自动检测网络" }],
+    });
+    const timer = globalThis.setTimeout(() => {
+      void getAppSettings().then((settings) => {
+        setAppSettings(settings);
+        setForm((current) => ({ ...current, httpProxy: settings.http_proxy, allProxy: settings.all_proxy }));
+        configureAnalytics(settings);
+        if (settings.analytics_consent === "unset" && analyticsAvailable()) setAnalyticsConsentOpen(true);
+        if (settings.analytics_consent === "granted" && !appOpenedCaptured.current) {
+          captureAppOpened();
+          appOpenedCaptured.current = true;
+        }
+        if (settings.first_network_check_succeeded !== "true") {
+          setNetworkDialogFirstRun(true);
+          setNetworkDialogOpen(true);
+        }
+      }).catch((error) => setSettingsError(errorMessage(error)));
+    }, 600);
+    return () => globalThis.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -150,10 +165,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void configureScheduler(payload);
-  }, [payload]);
-
-  useEffect(() => {
     return () => activeTask?.cleanup();
   }, [activeTask]);
 
@@ -171,7 +182,7 @@ function App() {
         setCommandPaletteOpen(true);
       } else if (event.key === ",") {
         event.preventDefault();
-        setSettingsDialogOpen(true);
+        void openSettingsDialog();
       } else if (event.key.toLowerCase() === "f") {
         event.preventDefault();
         setWorkspaceMode("search");
@@ -180,26 +191,78 @@ function App() {
     };
     globalThis.addEventListener("keydown", onKeyDown);
     return () => globalThis.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [appSettings]);
 
   function updateField<K extends keyof SearchFormState>(key: K, value: SearchFormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  async function refreshNetwork(nextPayload = payload, showDialog = true) {
+  async function refreshNetwork(nextPayload = payload, showDialog = true, mode: "first_run" | "startup" | "manual" = showDialog && networkDialogFirstRun ? "first_run" : showDialog ? "manual" : "startup") {
     if (showDialog) setNetworkDialogOpen(true);
+    setNetworkError(null);
     setNetworkLoading(true);
     try {
-      const result = await runNetworkCheck(nextPayload);
+      const result = await runNetworkCheck(nextPayload, mode);
       setNetwork(result);
       captureAnalytics("farello_network_check_finished", networkAnalyticsProperties(result, showDialog ? "manual" : "startup"));
+      if (result.status === "ok") {
+        const settings = await updateAppSettings({ first_network_check_succeeded: "true" });
+        setAppSettings(settings);
+        setForm((current) => ({ ...current, httpProxy: settings.http_proxy, allProxy: settings.all_proxy }));
+        setNetworkDialogFirstRun(false);
+      }
+      return result;
     } catch (error) {
+      const message = errorMessage(error);
+      setNetworkError(message);
       setNetwork({
         status: "error",
-        modules: [{ name: "network_check", label: "网络检测", status: "error", ok: false, message: errorMessage(error) }],
+        modules: [{ name: "network_check", label: "网络检测", status: "error", ok: false, message }],
+        guide_status: "error",
+        user_message: "网络检测失败，请稍后重试或手动填写代理",
       });
+      return null;
     } finally {
       setNetworkLoading(false);
+    }
+  }
+
+  async function saveNetworkProxyAndCheck() {
+    if (networkSaving || networkLoading) return;
+    setNetworkSaving(true);
+    setNetworkError(null);
+    try {
+      const settings = await updateAppSettings({
+        http_proxy: form.httpProxy.trim(),
+        all_proxy: form.allProxy.trim(),
+      });
+      const nextForm = { ...form, httpProxy: settings.http_proxy, allProxy: settings.all_proxy };
+      setAppSettings(settings);
+      setForm(nextForm);
+      await refreshNetwork(buildGuiSearchPayload(nextForm), false, "manual");
+    } catch (error) {
+      setNetworkError(errorMessage(error));
+    } finally {
+      setNetworkSaving(false);
+    }
+  }
+
+  async function openSettingsDialog() {
+    setSettingsDialogOpen(true);
+    if (appSettings) return;
+    setSettingsError(null);
+    try {
+      const settings = await getAppSettings();
+      setAppSettings(settings);
+      setForm((current) => ({ ...current, httpProxy: settings.http_proxy, allProxy: settings.all_proxy }));
+      configureAnalytics(settings);
+      if (settings.analytics_consent === "unset" && analyticsAvailable()) setAnalyticsConsentOpen(true);
+      if (settings.analytics_consent === "granted" && !appOpenedCaptured.current) {
+        captureAppOpened();
+        appOpenedCaptured.current = true;
+      }
+    } catch (error) {
+      setSettingsError(errorMessage(error));
     }
   }
 
@@ -238,12 +301,16 @@ function App() {
 
   async function cancelSearch() {
     if (!activeTask) return;
-    await activeTask.cancel();
-    activeTask.cleanup();
-    setActiveTask(null);
-    setViewState("error");
-    setErrors(["搜索已取消"]);
-    captureAnalytics("farello_search_cancelled", { source: "manual" });
+    try {
+      await activeTask.cancel();
+      activeTask.cleanup();
+      setActiveTask(null);
+      setViewState("error");
+      setErrors(["搜索已取消"]);
+      captureAnalytics("farello_search_cancelled", { source: "manual" });
+    } catch (error) {
+      setErrors([`取消搜索失败：${errorMessage(error)}`]);
+    }
   }
 
   function handleProgressEvent(event: SearchProgressEvent) {
@@ -308,6 +375,10 @@ function App() {
     } finally {
       setAnalyticsSaving(false);
     }
+  }
+
+  async function saveSettingsAndClose() {
+    setSettingsDialogOpen(false);
   }
 
   const allRows = envelope?.response?.rendered ?? [];
@@ -388,9 +459,9 @@ function App() {
               className={networkLoading ? "spin-icon" : undefined}
               status={networkLoading ? "checking" : displayedNetworkStatus === "ok" ? "ok" : displayedNetworkStatus === "error" ? "error" : "warning"}
               label={`网络检测：${networkLoading ? "检测中" : displayedNetworkStatus || "未知"}`}
-              onClick={() => refreshNetwork(payload, true)}
+              onClick={() => { setNetworkDialogFirstRun(false); void refreshNetwork(payload, true, "manual"); }}
             />
-            <IconButton icon={Settings} label="高级设置（⌘,）" onClick={() => setSettingsDialogOpen(true)} />
+            <IconButton icon={Settings} label="高级设置（⌘,）" onClick={() => void openSettingsDialog()} />
           </div>
         </div>
         {workspaceMode === "history" ? <HistoryWorkspace sidebarTarget={historySidebarTarget} onOpenLink={openPurchaseLink} /> : <>
@@ -426,7 +497,13 @@ function App() {
         <NetworkDialog
           result={network}
           loading={networkLoading}
-          onRefresh={() => refreshNetwork(payload, true)}
+          firstRun={networkDialogFirstRun}
+          form={form}
+          saving={networkSaving}
+          error={networkError}
+          onUpdate={updateField}
+          onRefresh={() => refreshNetwork(payload, true, networkDialogFirstRun ? "first_run" : "manual")}
+          onSaveProxy={saveNetworkProxyAndCheck}
           onClose={() => setNetworkDialogOpen(false)}
         />
       ) : null}
@@ -437,16 +514,17 @@ function App() {
           analyticsAvailable={analyticsAvailable()}
           analyticsSaving={analyticsSaving}
           analyticsError={analyticsError}
+          settingsError={settingsError}
           onUpdate={updateField}
           onAnalyticsChange={(enabled) => void setAnalyticsConsent(enabled ? "granted" : "denied")}
-          onClose={() => setSettingsDialogOpen(false)}
+          onClose={saveSettingsAndClose}
         />
       ) : null}
       {commandPaletteOpen ? <CommandPalette
         onClose={() => setCommandPaletteOpen(false)}
         onNavigate={(mode) => { setWorkspaceMode(mode); setCommandPaletteOpen(false); }}
-        onOpenSettings={() => { setCommandPaletteOpen(false); setSettingsDialogOpen(true); }}
-        onCheckNetwork={() => { setCommandPaletteOpen(false); void refreshNetwork(payload, true); }}
+        onOpenSettings={() => { setCommandPaletteOpen(false); void openSettingsDialog(); }}
+        onCheckNetwork={() => { setCommandPaletteOpen(false); setNetworkDialogFirstRun(false); void refreshNetwork(payload, true, "manual"); }}
       /> : null}
       {analyticsConsentOpen ? <AnalyticsConsentDialog
         loading={analyticsSaving}
@@ -610,6 +688,7 @@ function HistoryWorkspace({ sidebarTarget, onOpenLink }: { sidebarTarget: HTMLDi
           permissionStatus?.reminders === "denied" || permissionStatus?.reminders === "error" ? "Apple Reminders" : null,
         ].filter(Boolean).join("、")
         : "";
+      await configureScheduler(buildGuiSearchPayload(defaultSearchForm));
       await configureHistorySchedule(
         scheduleGroup.id,
         scheduleDraft.intervalHours,
@@ -909,17 +988,45 @@ function formatTrendTimestamp(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
 }
 
-function NetworkDialog({ result, loading, onRefresh, onClose }: { result: NetworkCheckResult | null; loading: boolean; onRefresh: () => void; onClose: () => void }) {
+function NetworkDialog({
+  result,
+  loading,
+  firstRun,
+  form,
+  saving,
+  error,
+  onUpdate,
+  onRefresh,
+  onSaveProxy,
+  onClose,
+}: {
+  result: NetworkCheckResult | null;
+  loading: boolean;
+  firstRun: boolean;
+  form: SearchFormState;
+  saving: boolean;
+  error: string | null;
+  onUpdate: <K extends keyof SearchFormState>(key: K, value: SearchFormState[K]) => void;
+  onRefresh: () => void;
+  onSaveProxy: () => void;
+  onClose: () => void;
+}) {
   const statusTone = (status?: string): "success" | "danger" | "warning" | "neutral" => status === "ok" ? "success" : status === "error" ? "danger" : status === "warning" ? "warning" : "neutral";
   const modules = visibleNetworkModules(result);
   return <DialogShell
-    title="网络检测"
-    description={loading ? "正在检查本机代理和 Google Flights" : "确认搜索所需的代理与 Google Flights 状态"}
+    title={firstRun ? "首次网络连接检查" : "网络连接"}
+    description={firstRun ? "开始搜索前，先确认 Farello 能访问 Google Flights。" : "检测 Google Flights 连接状态，并在需要时配置本机代理。"}
     labelledBy="network-dialog-title"
     className="network-dialog"
     onClose={onClose}
-    footer={<><Button onClick={onClose}>关闭</Button><Button variant="primary" disabled={loading} onClick={onRefresh}>{loading ? <><LoaderCircle className="spin" size={15} />检测中</> : <><RefreshCw size={15} />重新检测</>}</Button></>}
+    footer={<>
+      <Button onClick={onClose}>关闭</Button>
+      <Button disabled={loading || saving} onClick={onSaveProxy}>{saving ? "保存中…" : "保存代理并检测"}</Button>
+      <Button variant="primary" disabled={loading || saving} onClick={onRefresh}>{loading ? <><LoaderCircle className="spin" size={15} />检测中</> : <><RefreshCw size={15} />{firstRun && !result ? "开始检测" : "重新检测"}</>}</Button>
+    </>}
   >
+    {firstRun ? <StateMessage tone="warning" icon={Wifi} title="需要完成首次网络检查" description="默认先使用当前网络直连 Google Flights；如果失败，Farello 会自动尝试发现可用本地代理。" /> : null}
+    {result?.user_message ? <StateMessage tone={result.status === "ok" ? "success" : result.status === "error" ? "danger" : "warning"} icon={result.status === "ok" ? CheckCircle2 : AlertTriangle} title={result.user_message} /> : null}
     <div className="network-list">
       {modules.map((item) => (
         <div key={item.name} className="network-row">
@@ -930,6 +1037,15 @@ function NetworkDialog({ result, loading, onRefresh, onClose }: { result: Networ
       ))}
       {!result ? <LoadingState label={loading ? "正在运行网络检测" : "等待网络检测"} compact /> : null}
     </div>
+    <SettingsGroup title="代理设置">
+      <SettingsRow title="HTTP / HTTPS" description="默认留空，使用当前网络；只有无法访问 Google Flights 时才需要填写。">
+        <input className="proxy-input" value={form.httpProxy} placeholder="例如：http://127.0.0.1:7893" onChange={(event) => onUpdate("httpProxy", event.target.value)} />
+      </SettingsRow>
+      <SettingsRow title="ALL_PROXY" description="支持 socks5 代理。">
+        <input className="proxy-input" value={form.allProxy} placeholder="例如：socks5://127.0.0.1:7894" onChange={(event) => onUpdate("allProxy", event.target.value)} />
+      </SettingsRow>
+      {error ? <p className="settings-note settings-error" role="alert">{error}</p> : null}
+    </SettingsGroup>
   </DialogShell>;
 }
 
@@ -938,8 +1054,8 @@ function CommandPalette({ onClose, onNavigate, onOpenSettings, onCheckNetwork }:
     <div className="command-list">
       <button type="button" onClick={() => onNavigate("search")}><Search /><span><strong>航班搜索</strong><small>打开搜索条件与结果</small></span><kbd>⌘F</kbd></button>
       <button type="button" onClick={() => onNavigate("history")}><History /><span><strong>搜索历史</strong><small>查看价格趋势与已保存结果</small></span></button>
-      <button type="button" onClick={onCheckNetwork}><Wifi /><span><strong>检查网络</strong><small>检测代理与 Google Flights</small></span></button>
-      <button type="button" onClick={onOpenSettings}><Settings /><span><strong>高级设置</strong><small>代理与搜索执行设置</small></span><kbd>⌘,</kbd></button>
+      <button type="button" onClick={onCheckNetwork}><Wifi /><span><strong>网络连接</strong><small>检测 Google Flights 并配置代理</small></span></button>
+      <button type="button" onClick={onOpenSettings}><Settings /><span><strong>高级设置</strong><small>搜索执行与隐私设置</small></span><kbd>⌘,</kbd></button>
     </div>
   </DialogShell>;
 }
@@ -958,6 +1074,7 @@ function SettingsDialog({
   analyticsAvailable: analyticsEnabled,
   analyticsSaving,
   analyticsError,
+  settingsError,
   onUpdate,
   onAnalyticsChange,
   onClose,
@@ -967,20 +1084,18 @@ function SettingsDialog({
   analyticsAvailable: boolean;
   analyticsSaving: boolean;
   analyticsError: string | null;
+  settingsError: string | null;
   onUpdate: <K extends keyof SearchFormState>(key: K, value: SearchFormState[K]) => void;
   onAnalyticsChange: (enabled: boolean) => void;
-  onClose: () => void;
+  onClose: () => void | Promise<void>;
 }) {
-  return <DialogShell title="高级设置" description="网络代理与搜索执行策略" labelledBy="settings-dialog-title" className="settings-dialog" onClose={onClose} footer={<Button variant="primary" onClick={onClose}>完成</Button>}>
+  return <DialogShell title="高级设置" description="搜索执行策略与隐私统计" labelledBy="settings-dialog-title" className="settings-dialog" onClose={() => void onClose()} footer={<Button variant="primary" onClick={() => void onClose()}>完成</Button>}>
     <div className="settings-content">
-      <SettingsGroup title="网络代理">
-        <SettingsRow title="HTTP / HTTPS" description="留空时继承应用运行环境。"><input value={form.httpProxy} placeholder="http://127.0.0.1:7893" onChange={(event) => onUpdate("httpProxy", event.target.value)} /></SettingsRow>
-        <SettingsRow title="ALL_PROXY" description="支持 socks5 代理。"><input value={form.allProxy} placeholder="socks5://127.0.0.1:7894" onChange={(event) => onUpdate("allProxy", event.target.value)} /></SettingsRow>
-      </SettingsGroup>
       <SettingsGroup title="执行策略">
         <SettingsRow title="单段超时" description="单个航段请求的最长等待时间。"><input type="number" min="5" value={form.fliTimeoutSeconds} onChange={(event) => onUpdate("fliTimeoutSeconds", Number(event.target.value))} /><span className="control-suffix">秒</span></SettingsRow>
         <SettingsRow title="总超时" description="整次搜索任务的最长等待时间。"><input type="number" min="30" value={form.guiTimeoutSeconds} onChange={(event) => onUpdate("guiTimeoutSeconds", Number(event.target.value))} /><span className="control-suffix">秒</span></SettingsRow>
         <SettingsRow title="并发查询" description="保守设置可以降低触发限频的概率。"><input type="number" min="1" max="6" value={form.maxConcurrentSearches} onChange={(event) => onUpdate("maxConcurrentSearches", Number(event.target.value))} /></SettingsRow>
+        {settingsError ? <p className="settings-note settings-error" role="alert">{settingsError}</p> : null}
       </SettingsGroup>
       <SettingsGroup title="隐私与统计">
         <SettingsRow title="匿名使用统计" description="仅发送功能使用与错误类别，不发送航线、日期、机场、价格、输入内容或搜索结果。">

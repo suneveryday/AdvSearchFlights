@@ -1,7 +1,8 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -9,7 +10,7 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_notification::NotificationExt;
 use serde_json::Value;
 
-type SearchTasks = Arc<Mutex<HashMap<String, Arc<Mutex<Child>>>>>;
+type SearchTasks = Arc<Mutex<HashMap<String, u32>>>;
 
 struct TaskState {
     tasks: SearchTasks,
@@ -30,6 +31,7 @@ struct SearchQueue {
     active: Option<SearchJob>,
     manual: VecDeque<SearchJob>,
     scheduled: VecDeque<SearchJob>,
+    cancelled: HashSet<String>,
 }
 
 impl SearchQueue {
@@ -60,6 +62,18 @@ impl SearchQueue {
         self.manual.retain(|job| job.task_id != task_id);
         self.scheduled.retain(|job| job.task_id != task_id);
         before != self.manual.len() + self.scheduled.len()
+    }
+
+    fn mark_active_cancelled(&mut self, task_id: &str) -> bool {
+        if self.active.as_ref().map(|job| job.task_id.as_str()) != Some(task_id) {
+            return false;
+        }
+        self.cancelled.insert(task_id.to_string());
+        true
+    }
+
+    fn take_cancelled(&mut self, task_id: &str) -> bool {
+        self.cancelled.remove(task_id)
     }
 }
 
@@ -102,10 +116,20 @@ fn gui_search(payload: Value) -> Result<Value, String> {
 fn start_gui_search(app: AppHandle, state: State<TaskState>, payload: Value) -> Result<String, String> {
     let task_id = next_task_id();
     let job = SearchJob { task_id: task_id.clone(), payload, source: "manual", group_id: None };
-    state.queue.lock().map_err(|_| "无法锁定搜索队列".to_string())?.push(job);
+    let queued_behind_task = {
+        let mut queue = state.queue.lock().map_err(|_| "无法锁定搜索队列".to_string())?;
+        let queued_behind_task = queue.active.is_some() || !queue.manual.is_empty();
+        queue.push(job);
+        queued_behind_task
+    };
+    let message = if queued_behind_task {
+        "搜索已进入本地串行队列"
+    } else {
+        "搜索任务已提交，正在启动后端"
+    };
     let _ = app.emit(
         "gui-search-event",
-        serde_json::json!({"task_id": task_id, "event": {"type": "queued", "message": "搜索已进入本地串行队列"}}),
+        serde_json::json!({"task_id": task_id, "event": {"type": "queued", "queued_behind_task": queued_behind_task, "message": message}}),
     );
     Ok(task_id)
 }
@@ -121,9 +145,14 @@ fn spawn_search_job(app: AppHandle, tasks: SearchTasks, queue: Arc<Mutex<SearchQ
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    command.process_group(0);
     configure_child_path(&mut command, &cli);
     configure_proxy_env(&mut command, &job.payload);
     configure_search_env(&mut command, &job.payload);
+    if queue.lock().map_err(|_| "无法锁定搜索队列".to_string())?.take_cancelled(&job.task_id) {
+        clear_active_task(&queue, &job.task_id);
+        return Ok(());
+    }
     let mut child = command.spawn().map_err(|error| format!("无法启动流式搜索：{error}"))?;
     let stdout = child.stdout.take().ok_or_else(|| "无法读取 gui-search stdout".to_string())?;
     let stderr = child.stderr.take().ok_or_else(|| "无法读取 gui-search stderr".to_string())?;
@@ -132,8 +161,15 @@ fn spawn_search_job(app: AppHandle, tasks: SearchTasks, queue: Arc<Mutex<SearchQ
         let body = serde_json::to_vec(&job.payload).map_err(|error| format!("无法序列化搜索参数：{error}"))?;
         stdin.write_all(&body).map_err(|error| format!("写入 gui-search stdin 失败：{error}"))?;
     }
-    let child_ref = Arc::new(Mutex::new(child));
-    tasks.lock().map_err(|_| "无法锁定搜索任务表".to_string())?.insert(job.task_id.clone(), child_ref.clone());
+    let child_pid = child.id();
+    tasks.lock().map_err(|_| "无法锁定搜索任务表".to_string())?.insert(job.task_id.clone(), child_pid);
+    if queue.lock().map_err(|_| "无法锁定搜索队列".to_string())?.take_cancelled(&job.task_id) {
+        let _ = terminate_process_group(child_pid);
+        let _ = child.wait();
+        tasks.lock().map_err(|_| "无法锁定搜索任务表".to_string())?.remove(&job.task_id);
+        clear_active_task(&queue, &job.task_id);
+        return Ok(());
+    }
     let provider = job.payload
         .get("provider")
         .and_then(Value::as_str)
@@ -193,7 +229,7 @@ fn spawn_search_job(app: AppHandle, tasks: SearchTasks, queue: Arc<Mutex<SearchQ
     std::thread::spawn(move || {
         let stderr_reader = BufReader::new(stderr);
         let stderr_text = stderr_reader.lines().map_while(Result::ok).collect::<Vec<_>>().join("\n");
-        let status = child_ref.lock().ok().and_then(|mut child| child.wait().ok());
+        let status = child.wait().ok();
         if status.map(|item| !item.success()).unwrap_or(true) && !stderr_text.trim().is_empty() {
             let _ = app_for_wait.emit(
                 "gui-search-event",
@@ -211,35 +247,115 @@ fn spawn_search_job(app: AppHandle, tasks: SearchTasks, queue: Arc<Mutex<SearchQ
         if let Ok(mut table) = tasks.lock() {
             table.remove(&task_for_wait);
         }
-        if let Ok(mut state) = queue.lock() {
-            if state.active.as_ref().map(|item| item.task_id.as_str()) == Some(task_for_wait.as_str()) {
-                state.active = None;
-            }
-        }
+        clear_active_task(&queue, &task_for_wait);
     });
     Ok(())
 }
 
 #[tauri::command]
 fn cancel_gui_search(state: State<TaskState>, task_id: String) -> Result<(), String> {
-    if state.queue.lock().map_err(|_| "无法锁定搜索队列".to_string())?.remove(&task_id) {
+    cancel_search_task(&state.tasks, &state.queue, &task_id)
+}
+
+fn cancel_search_task(tasks: &SearchTasks, search_queue: &Arc<Mutex<SearchQueue>>, task_id: &str) -> Result<(), String> {
+    {
+        let mut queue = search_queue.lock().map_err(|_| "无法锁定搜索队列".to_string())?;
+        if queue.remove(task_id) {
+            return Ok(());
+        }
+        if !queue.mark_active_cancelled(task_id) {
+            return Ok(());
+        }
+    }
+
+    for _ in 0..80 {
+        let pid = tasks.lock().map_err(|_| "无法锁定搜索任务表".to_string())?.get(task_id).copied();
+        if let Some(pid) = pid {
+            terminate_process_group(pid)?;
+            tasks.lock().map_err(|_| "无法锁定搜索任务表".to_string())?.remove(task_id);
+            clear_active_task(search_queue, task_id);
+            return Ok(());
+        }
+        let still_active = search_queue.lock().map_err(|_| "无法锁定搜索队列".to_string())?
+            .active.as_ref().map(|job| job.task_id.as_str()) == Some(task_id);
+        if !still_active {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    Err("取消搜索超时，后端任务尚未确认终止".to_string())
+}
+
+fn clear_active_task(queue: &Arc<Mutex<SearchQueue>>, task_id: &str) {
+    if let Ok(mut state) = queue.lock() {
+        state.take_cancelled(task_id);
+        if state.active.as_ref().map(|item| item.task_id.as_str()) == Some(task_id) {
+            state.active = None;
+        }
+    }
+}
+
+fn terminate_process_group(pid: u32) -> Result<(), String> {
+    signal_process_group(pid, libc::SIGTERM)?;
+    for _ in 0..40 {
+        if !process_group_exists(pid) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    signal_process_group(pid, libc::SIGKILL)?;
+    for _ in 0..40 {
+        if !process_group_exists(pid) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    Err(format!("无法终止搜索后端进程组：{pid}"))
+}
+
+fn signal_process_group(pid: u32, signal: i32) -> Result<(), String> {
+    let result = unsafe { libc::kill(-(pid as i32), signal) };
+    if result == 0 {
         return Ok(());
     }
-    let task = state.tasks.lock().map_err(|_| "无法锁定搜索任务表".to_string())?.remove(&task_id);
-    if let Some(child) = task {
-        child.lock().map_err(|_| "无法锁定搜索任务".to_string())?.kill().map_err(|error| format!("取消搜索失败：{error}"))?;
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(());
     }
-    Ok(())
+    Err(format!("终止搜索后端失败：{error}"))
+}
+
+fn process_group_exists(pid: u32) -> bool {
+    let result = unsafe { libc::kill(-(pid as i32), 0) };
+    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 #[tauri::command]
-fn network_check(payload: Value) -> Result<Value, String> {
+async fn network_check(payload: Value, mode: Option<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || run_network_check_command(payload, mode))
+        .await
+        .map_err(|error| format!("network-check 后台任务失败：{error}"))?
+}
+
+fn run_network_check_command(payload: Value, mode: Option<String>) -> Result<Value, String> {
     let cli = resolve_cli_path().ok_or_else(|| "无法找到 adv-search-flights。".to_string())?;
-    let provider = payload.get("provider").and_then(Value::as_str).unwrap_or("fli");
+    let provider = payload.get("provider").and_then(Value::as_str).unwrap_or("fli").to_string();
+    let mode = mode.unwrap_or_else(|| "manual".to_string());
     let mut command = Command::new(&cli);
-    command.arg("network-check").arg("--provider").arg(provider).arg("--format").arg("json").stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .arg("network-check")
+        .arg("--provider")
+        .arg(provider)
+        .arg("--mode")
+        .arg(&mode)
+        .arg("--format")
+        .arg("json")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     configure_child_path(&mut command, &cli);
-    configure_proxy_env(&mut command, &payload);
+    if mode != "startup" {
+        configure_proxy_env(&mut command, &payload);
+    }
     let output = command.output().map_err(|error| format!("network-check 执行失败：{error}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -424,15 +540,21 @@ fn alert_permission_status(app: AppHandle, request_reminders: bool) -> Result<Va
 }
 
 #[tauri::command]
-fn app_settings_get() -> Result<Value, String> {
-    run_history_command("app-settings-get", &["--format".to_string(), "json".to_string()])
+async fn app_settings_get() -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(|| run_history_command("app-settings-get", &["--format".to_string(), "json".to_string()]))
+        .await
+        .map_err(|error| format!("app-settings-get 后台任务失败：{error}"))?
 }
 
 #[tauri::command]
-fn app_settings_update(
+async fn app_settings_update(
     rate_limit_retry_minutes: Option<u32>,
     analytics_consent: Option<String>,
+    http_proxy: Option<String>,
+    all_proxy: Option<String>,
+    first_network_check_succeeded: Option<String>,
 ) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     let mut args = Vec::new();
     if let Some(minutes) = rate_limit_retry_minutes {
         args.extend(["--rate-limit-retry-minutes".to_string(), minutes.to_string()]);
@@ -440,8 +562,20 @@ fn app_settings_update(
     if let Some(consent) = analytics_consent {
         args.extend(["--analytics-consent".to_string(), consent]);
     }
+    if let Some(value) = http_proxy {
+        args.extend(["--http-proxy".to_string(), value]);
+    }
+    if let Some(value) = all_proxy {
+        args.extend(["--all-proxy".to_string(), value]);
+    }
+    if let Some(value) = first_network_check_succeeded {
+        args.extend(["--first-network-check-succeeded".to_string(), value]);
+    }
     args.extend(["--format".to_string(), "json".to_string()]);
     run_history_command("app-settings-update", &args)
+    })
+    .await
+    .map_err(|error| format!("app-settings-update 后台任务失败：{error}"))?
 }
 
 #[tauri::command]
@@ -638,13 +772,23 @@ fn start_background_workers(app: AppHandle, tasks: SearchTasks, queue: Arc<Mutex
 
     let scheduler_app = app.clone();
     std::thread::spawn(move || {
-        let _ = run_history_command("history-schedule-reset-runtime", &["--format".to_string(), "json".to_string()]);
+        std::thread::sleep(Duration::from_secs(5));
+        let mut runtime_initialized = false;
         loop {
+            let runtime_snapshot = runtime_payload.lock().ok().map(|value| value.clone()).unwrap_or(Value::Null);
+            if runtime_snapshot.is_null() {
+                std::thread::sleep(Duration::from_secs(30));
+                continue;
+            }
+            if !runtime_initialized {
+                let _ = run_history_command("history-schedule-reset-runtime", &["--format".to_string(), "json".to_string()]);
+                runtime_initialized = true;
+            }
             if let Ok(response) = run_history_command("history-schedule-claim-due", &["--format".to_string(), "json".to_string()]) {
                 if let Some(item) = response.get("item").filter(|value| !value.is_null()) {
                     if let (Some(group_id), Some(query)) = (item.get("group_id").and_then(Value::as_str), item.get("query")) {
                         let mut payload = query.clone();
-                        merge_scheduler_runtime(&mut payload, runtime_payload.lock().ok().as_deref());
+                        merge_scheduler_runtime(&mut payload, Some(&runtime_snapshot));
                         let job = SearchJob {
                             task_id: format!("schedule-{}-{}", group_id, next_task_id()),
                             payload,
@@ -673,7 +817,7 @@ fn merge_scheduler_runtime(payload: &mut Value, runtime: Option<&Value>) {
     target.insert("cooldown_seconds".to_string(), Value::from(2));
     target.insert("retry_waits".to_string(), serde_json::json!([3, 8, 15]));
     target.insert("fli_timeout_seconds".to_string(), Value::from(45));
-    target.insert("gui_timeout_seconds".to_string(), Value::from(360));
+    target.insert("gui_timeout_seconds".to_string(), Value::from(1200));
     target.insert("max_concurrent_searches".to_string(), Value::from(1));
     let Some(source) = runtime.and_then(Value::as_object) else { return; };
     for key in [
@@ -817,7 +961,7 @@ fn configure_search_env(command: &mut Command, payload: &Value) {
 pub fn run() {
     let tasks = Arc::new(Mutex::new(HashMap::new()));
     let queue = Arc::new(Mutex::new(SearchQueue::default()));
-    let runtime_payload = Arc::new(Mutex::new(Value::Object(Default::default())));
+    let runtime_payload = Arc::new(Mutex::new(Value::Null));
     let worker_tasks = tasks.clone();
     let worker_queue = queue.clone();
     let worker_runtime = runtime_payload.clone();
@@ -877,6 +1021,40 @@ mod tests {
         assert_eq!(queue.scheduled.len(), 1);
         assert_eq!(queue.pop_next().map(|item| item.task_id), Some("manual-a".to_string()));
         assert_eq!(queue.pop_next().map(|item| item.task_id), Some("scheduled-a".to_string()));
+    }
+
+    #[test]
+    fn queued_manual_search_can_be_cancelled_before_starting() {
+        let tasks = Arc::new(Mutex::new(HashMap::new()));
+        let queue = Arc::new(Mutex::new(SearchQueue::default()));
+        queue.lock().unwrap().push(job("manual-a", "manual", None));
+
+        cancel_search_task(&tasks, &queue, "manual-a").unwrap();
+
+        assert!(queue.lock().unwrap().pop_next().is_none());
+    }
+
+    #[test]
+    fn cancelling_active_search_stops_process_and_releases_serial_queue() {
+        let tasks = Arc::new(Mutex::new(HashMap::new()));
+        let queue = Arc::new(Mutex::new(SearchQueue::default()));
+        queue.lock().unwrap().active = Some(job("manual-a", "manual", None));
+
+        let mut command = Command::new("/bin/sleep");
+        command.arg("30").process_group(0).stdout(Stdio::null()).stderr(Stdio::null());
+        let mut child = command.spawn().unwrap();
+        let pid = child.id();
+        tasks.lock().unwrap().insert("manual-a".to_string(), pid);
+        let waiter = std::thread::spawn(move || child.wait().unwrap());
+
+        cancel_search_task(&tasks, &queue, "manual-a").unwrap();
+        let status = waiter.join().unwrap();
+
+        assert!(!status.success());
+        assert!(tasks.lock().unwrap().is_empty());
+        assert!(queue.lock().unwrap().active.is_none());
+        queue.lock().unwrap().push(job("manual-b", "manual", None));
+        assert_eq!(queue.lock().unwrap().pop_next().map(|item| item.task_id), Some("manual-b".to_string()));
     }
 
     #[test]

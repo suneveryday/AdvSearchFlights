@@ -61,6 +61,7 @@ def main() -> None:
 
     network_parser = subparsers.add_parser("network-check", help="输出桌面 GUI 使用的模块化网络检测结果")
     network_parser.add_argument("--provider", choices=["auto", "mock", "fli", "skyscanner"], default="fli")
+    network_parser.add_argument("--mode", choices=["first_run", "startup", "manual"], default="manual")
     network_parser.add_argument("--format", choices=["json"], default="json")
 
     history_list_parser = subparsers.add_parser("history-list", help="列出本地历史搜索批次")
@@ -129,6 +130,9 @@ def main() -> None:
     app_settings_update_parser = subparsers.add_parser("app-settings-update", help="更新桌面应用设置")
     app_settings_update_parser.add_argument("--rate-limit-retry-minutes", type=int)
     app_settings_update_parser.add_argument("--analytics-consent", choices=["unset", "granted", "denied"])
+    app_settings_update_parser.add_argument("--http-proxy")
+    app_settings_update_parser.add_argument("--all-proxy")
+    app_settings_update_parser.add_argument("--first-network-check-succeeded", choices=["true", "false"])
     app_settings_update_parser.add_argument("--format", choices=["json"], default="json")
 
     diagnostics_parser = subparsers.add_parser("diagnostics-log", help="查看本地诊断日志")
@@ -148,7 +152,7 @@ def main() -> None:
         asyncio.run(_run_gui_search_command(args))
         return
     if args.command == "network-check":
-        print(json.dumps(diagnose_network_modules(args.provider), ensure_ascii=False, indent=2))
+        print(json.dumps(diagnose_network_modules(args.provider, mode=args.mode), ensure_ascii=False, indent=2))
         return
     if args.command == "history-list":
         print(json.dumps({"items": list_history(args.limit)}, ensure_ascii=False, indent=2))
@@ -222,6 +226,9 @@ def main() -> None:
             item = update_app_settings(
                 rate_limit_retry_minutes=args.rate_limit_retry_minutes,
                 analytics_consent=args.analytics_consent,
+                http_proxy=args.http_proxy,
+                all_proxy=args.all_proxy,
+                first_network_check_succeeded=args.first_network_check_succeeded,
             )
         except ValueError as exc:
             parser.error(str(exc))
@@ -316,6 +323,8 @@ async def run_gui_search_payload(raw_input: str | dict, *, check_network: bool =
             event_callback({"type": "failed", "message": envelope["error"]["message"]})
         return envelope
 
+    if check_network and request.provider.value in {"auto", "fli"}:
+        diagnose_network_modules(request.provider.value, mode="startup")
     network_status = diagnose_network(request.provider.value, check_google=check_network).payload()
     if event_callback:
         event_callback({"type": "network_check", "network_status": network_status, "message": f"网络预检：{network_status['status']}"})
@@ -340,9 +349,15 @@ async def run_gui_search_payload(raw_input: str | dict, *, check_network: bool =
         ).search(request)
         response = await asyncio.wait_for(search_operation, timeout=timeout_seconds) if timeout_seconds else await search_operation
     except asyncio.TimeoutError:
+        destination_count = len(request.destinations)
+        timeout_hint = (
+            "候选目的地较多，单程查询数量会明显增加。可以提高总超时、减少城市数量，或先用较少目的地验证网络后重试。"
+            if destination_count >= 5
+            else "可以减少目的地、提高单段或总超时后重试。"
+        )
         envelope = _gui_error(
             "search_timeout",
-            f"搜索超过 {timeout_seconds} 秒，已自动中止。可以减少目的地、提高单段或总超时后重试。",
+            f"搜索超过 {timeout_seconds} 秒，已自动中止。{timeout_hint}",
             provider=request.provider.value,
             network_status=network_status,
             warnings=[],

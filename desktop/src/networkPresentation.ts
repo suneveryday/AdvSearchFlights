@@ -10,6 +10,6 @@ export function visibleNetworkStatus(result: NetworkCheckResult | null): Network
   const modules = visibleNetworkModules(result);
   if (!modules.length) return result?.status ?? null;
   if (modules.some((item) => item.status === "error")) return "error";
-  if (modules.some((item) => item.status === "warning" || item.status === "skipped")) return "warning";
+  if (modules.some((item) => item.status === "warning")) return "warning";
   return "ok";
 }
