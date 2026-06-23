@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { captureAnalytics, configureAnalytics, durationBucket, normalizedErrorCategory, resultCountBucket, sanitizeCaptureResult, setAnalyticsClientForTests } from "./analytics";
 
-const settings = { rate_limit_retry_minutes: 5, analytics_consent: "granted" as const, analytics_install_id: "test-install-id", http_proxy: "", all_proxy: "" };
+const settings = { rate_limit_retry_minutes: 5, analytics_consent: "granted" as const, analytics_install_id: "test-install-id", http_proxy: "", all_proxy: "", first_network_check_succeeded: "true" as const };
 
 describe("anonymous analytics safeguards", () => {
   it("keeps only the explicit event property allowlist", () => {

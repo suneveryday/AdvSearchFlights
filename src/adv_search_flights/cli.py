@@ -61,7 +61,7 @@ def main() -> None:
 
     network_parser = subparsers.add_parser("network-check", help="输出桌面 GUI 使用的模块化网络检测结果")
     network_parser.add_argument("--provider", choices=["auto", "mock", "fli", "skyscanner"], default="fli")
-    network_parser.add_argument("--mode", choices=["startup", "manual"], default="manual")
+    network_parser.add_argument("--mode", choices=["first_run", "startup", "manual"], default="manual")
     network_parser.add_argument("--format", choices=["json"], default="json")
 
     history_list_parser = subparsers.add_parser("history-list", help="列出本地历史搜索批次")
@@ -132,6 +132,7 @@ def main() -> None:
     app_settings_update_parser.add_argument("--analytics-consent", choices=["unset", "granted", "denied"])
     app_settings_update_parser.add_argument("--http-proxy")
     app_settings_update_parser.add_argument("--all-proxy")
+    app_settings_update_parser.add_argument("--first-network-check-succeeded", choices=["true", "false"])
     app_settings_update_parser.add_argument("--format", choices=["json"], default="json")
 
     diagnostics_parser = subparsers.add_parser("diagnostics-log", help="查看本地诊断日志")
@@ -227,6 +228,7 @@ def main() -> None:
                 analytics_consent=args.analytics_consent,
                 http_proxy=args.http_proxy,
                 all_proxy=args.all_proxy,
+                first_network_check_succeeded=args.first_network_check_succeeded,
             )
         except ValueError as exc:
             parser.error(str(exc))
@@ -321,6 +323,8 @@ async def run_gui_search_payload(raw_input: str | dict, *, check_network: bool =
             event_callback({"type": "failed", "message": envelope["error"]["message"]})
         return envelope
 
+    if check_network and request.provider.value in {"auto", "fli"}:
+        diagnose_network_modules(request.provider.value, mode="startup")
     network_status = diagnose_network(request.provider.value, check_google=check_network).payload()
     if event_callback:
         event_callback({"type": "network_check", "network_status": network_status, "message": f"网络预检：{network_status['status']}"})

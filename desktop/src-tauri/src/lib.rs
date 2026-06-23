@@ -331,12 +331,27 @@ fn process_group_exists(pid: u32) -> bool {
 }
 
 #[tauri::command]
-fn network_check(payload: Value, mode: Option<String>) -> Result<Value, String> {
+async fn network_check(payload: Value, mode: Option<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || run_network_check_command(payload, mode))
+        .await
+        .map_err(|error| format!("network-check 后台任务失败：{error}"))?
+}
+
+fn run_network_check_command(payload: Value, mode: Option<String>) -> Result<Value, String> {
     let cli = resolve_cli_path().ok_or_else(|| "无法找到 adv-search-flights。".to_string())?;
-    let provider = payload.get("provider").and_then(Value::as_str).unwrap_or("fli");
+    let provider = payload.get("provider").and_then(Value::as_str).unwrap_or("fli").to_string();
     let mode = mode.unwrap_or_else(|| "manual".to_string());
     let mut command = Command::new(&cli);
-    command.arg("network-check").arg("--provider").arg(provider).arg("--mode").arg(&mode).arg("--format").arg("json").stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .arg("network-check")
+        .arg("--provider")
+        .arg(provider)
+        .arg("--mode")
+        .arg(&mode)
+        .arg("--format")
+        .arg("json")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     configure_child_path(&mut command, &cli);
     if mode != "startup" {
         configure_proxy_env(&mut command, &payload);
@@ -525,17 +540,21 @@ fn alert_permission_status(app: AppHandle, request_reminders: bool) -> Result<Va
 }
 
 #[tauri::command]
-fn app_settings_get() -> Result<Value, String> {
-    run_history_command("app-settings-get", &["--format".to_string(), "json".to_string()])
+async fn app_settings_get() -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(|| run_history_command("app-settings-get", &["--format".to_string(), "json".to_string()]))
+        .await
+        .map_err(|error| format!("app-settings-get 后台任务失败：{error}"))?
 }
 
 #[tauri::command]
-fn app_settings_update(
+async fn app_settings_update(
     rate_limit_retry_minutes: Option<u32>,
     analytics_consent: Option<String>,
     http_proxy: Option<String>,
     all_proxy: Option<String>,
+    first_network_check_succeeded: Option<String>,
 ) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     let mut args = Vec::new();
     if let Some(minutes) = rate_limit_retry_minutes {
         args.extend(["--rate-limit-retry-minutes".to_string(), minutes.to_string()]);
@@ -549,8 +568,14 @@ fn app_settings_update(
     if let Some(value) = all_proxy {
         args.extend(["--all-proxy".to_string(), value]);
     }
+    if let Some(value) = first_network_check_succeeded {
+        args.extend(["--first-network-check-succeeded".to_string(), value]);
+    }
     args.extend(["--format".to_string(), "json".to_string()]);
     run_history_command("app-settings-update", &args)
+    })
+    .await
+    .map_err(|error| format!("app-settings-update 后台任务失败：{error}"))?
 }
 
 #[tauri::command]
@@ -747,13 +772,23 @@ fn start_background_workers(app: AppHandle, tasks: SearchTasks, queue: Arc<Mutex
 
     let scheduler_app = app.clone();
     std::thread::spawn(move || {
-        let _ = run_history_command("history-schedule-reset-runtime", &["--format".to_string(), "json".to_string()]);
+        std::thread::sleep(Duration::from_secs(5));
+        let mut runtime_initialized = false;
         loop {
+            let runtime_snapshot = runtime_payload.lock().ok().map(|value| value.clone()).unwrap_or(Value::Null);
+            if runtime_snapshot.is_null() {
+                std::thread::sleep(Duration::from_secs(30));
+                continue;
+            }
+            if !runtime_initialized {
+                let _ = run_history_command("history-schedule-reset-runtime", &["--format".to_string(), "json".to_string()]);
+                runtime_initialized = true;
+            }
             if let Ok(response) = run_history_command("history-schedule-claim-due", &["--format".to_string(), "json".to_string()]) {
                 if let Some(item) = response.get("item").filter(|value| !value.is_null()) {
                     if let (Some(group_id), Some(query)) = (item.get("group_id").and_then(Value::as_str), item.get("query")) {
                         let mut payload = query.clone();
-                        merge_scheduler_runtime(&mut payload, runtime_payload.lock().ok().as_deref());
+                        merge_scheduler_runtime(&mut payload, Some(&runtime_snapshot));
                         let job = SearchJob {
                             task_id: format!("schedule-{}-{}", group_id, next_task_id()),
                             payload,
@@ -926,7 +961,7 @@ fn configure_search_env(command: &mut Command, payload: &Value) {
 pub fn run() {
     let tasks = Arc::new(Mutex::new(HashMap::new()));
     let queue = Arc::new(Mutex::new(SearchQueue::default()));
-    let runtime_payload = Arc::new(Mutex::new(Value::Object(Default::default())));
+    let runtime_payload = Arc::new(Mutex::new(Value::Null));
     let worker_tasks = tasks.clone();
     let worker_queue = queue.clone();
     let worker_runtime = runtime_payload.clone();

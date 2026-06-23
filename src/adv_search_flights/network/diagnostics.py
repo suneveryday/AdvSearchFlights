@@ -25,6 +25,7 @@ class NetworkCheck(BaseModel):
     ok: bool | None
     message: str
     latency_ms: int | None = None
+    details: dict[str, Any] | None = None
 
 
 class ProxySummary(BaseModel):
@@ -73,7 +74,7 @@ class ProviderRunStatus(BaseModel):
     message: str | None = None
 
 
-def diagnose_network(provider: str, *, timeout_seconds: float = 3.0, check_google: bool = True) -> NetworkDiagnostics:
+def diagnose_network(provider: str, *, timeout_seconds: float = 8.0, check_google: bool = True) -> NetworkDiagnostics:
     checks: list[NetworkCheck] = []
     provider_name = provider.lower()
     if provider_name in {"auto", "fli"}:
@@ -89,8 +90,8 @@ def diagnose_network(provider: str, *, timeout_seconds: float = 3.0, check_googl
     return NetworkDiagnostics(proxy=summarize_proxy_env(), checks=checks)
 
 
-def diagnose_network_modules(provider: str = "fli", *, timeout_seconds: float = 3.0, mode: str = "manual") -> dict[str, Any]:
-    if mode == "startup":
+def diagnose_network_modules(provider: str = "fli", *, timeout_seconds: float = 8.0, mode: str = "manual") -> dict[str, Any]:
+    if mode in {"startup", "first_run"}:
         return diagnose_startup_network_modules(provider, timeout_seconds=timeout_seconds)
     proxy = summarize_proxy_env()
     modules = [
@@ -134,12 +135,13 @@ def diagnose_network_modules(provider: str = "fli", *, timeout_seconds: float = 
         "auto_configured": False,
         "manual_required": False,
         "guide_status": "direct_ok" if status == "ok" else "error",
+        "user_message": "网络检测通过" if status == "ok" else "网络检测未通过，请检查当前网络或代理设置",
     }
 
 
-def diagnose_startup_network_modules(provider: str = "fli", *, timeout_seconds: float = 3.0) -> dict[str, Any]:
+def diagnose_startup_network_modules(provider: str = "fli", *, timeout_seconds: float = 8.0) -> dict[str, Any]:
     provider_name = provider.lower()
-    direct = _check_google_flights(timeout_seconds)
+    direct = _check_google_flights_with_proxy_env(None, timeout_seconds, clear_proxy=True)
     if provider_name not in {"auto", "fli"} or direct.ok:
         current_proxy = summarize_proxy_env()
         modules = [
@@ -162,9 +164,10 @@ def diagnose_startup_network_modules(provider: str = "fli", *, timeout_seconds: 
             "auto_configured": False,
             "manual_required": False,
             "guide_status": "direct_ok" if direct.ok else "error",
+            "user_message": "当前网络可直接访问 Google Flights" if direct.ok else "当前网络暂时无法访问 Google Flights",
         }
 
-    candidates = _proxy_candidates()
+    candidates = _proxy_candidates(include_environment=False)
     selected: ProxyCandidate | None = None
     selected_check: NetworkCheck | None = None
     checked_candidates: list[ProxyCandidate] = []
@@ -181,6 +184,7 @@ def diagnose_startup_network_modules(provider: str = "fli", *, timeout_seconds: 
             break
 
     if selected is not None:
+        _activate_proxy_candidate(selected)
         _persist_proxy_candidate(selected)
         proxy_summary = summarize_proxy_env(_candidate_env(selected))
         modules = [
@@ -204,6 +208,7 @@ def diagnose_startup_network_modules(provider: str = "fli", *, timeout_seconds: 
             "auto_configured": True,
             "manual_required": False,
             "guide_status": "proxy_auto_configured",
+            "user_message": "已自动发现并保存可用代理，Google Flights 连接正常",
         }
 
     modules = [
@@ -226,6 +231,7 @@ def diagnose_startup_network_modules(provider: str = "fli", *, timeout_seconds: 
         "auto_configured": False,
         "manual_required": True,
         "guide_status": "needs_manual_proxy",
+        "user_message": "无法连接 Google Flights，请检查网络或手动填写代理",
     }
 
 
@@ -335,54 +341,98 @@ def _check_google_flights(timeout_seconds: float) -> NetworkCheck:
 
 def _check_google_flights_with_proxy_env(env: dict[str, str] | None, timeout_seconds: float, *, clear_proxy: bool) -> NetworkCheck:
     start = time.monotonic()
-    previous = {key: os.environ.get(key) for key in PROXY_ENV_KEYS}
+    request_env = os.environ.copy()
+    if clear_proxy:
+        for key in PROXY_ENV_KEYS:
+            request_env.pop(key, None)
+    if env:
+        request_env.update({key: value for key, value in env.items() if value})
+    curl = shutil.which("curl") or "/usr/bin/curl"
     try:
-        if clear_proxy:
-            for key in PROXY_ENV_KEYS:
-                os.environ.pop(key, None)
-        if env:
-            os.environ.update({key: value for key, value in env.items() if value})
-        response = httpx.head(GOOGLE_FLIGHTS_URL, follow_redirects=True, timeout=timeout_seconds)
+        completed = subprocess.run(
+            [
+                curl,
+                "-I",
+                "-L",
+                "--max-time",
+                str(max(1, int(round(timeout_seconds)))),
+                "-sS",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                GOOGLE_FLIGHTS_URL,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds + 1,
+            check=False,
+            env=request_env,
+        )
         latency_ms = int((time.monotonic() - start) * 1000)
-        if response.status_code < 500:
+        status_text = (completed.stdout or "").strip()
+        status_code = int(status_text[-3:]) if status_text[-3:].isdigit() else 0
+        if completed.returncode == 0 and 0 < status_code < 500:
             return NetworkCheck(
                 name="google_flights",
                 status="ok",
                 ok=True,
-                message=f"Google Flights 可访问，HTTP {response.status_code}",
+                message=f"Google Flights 可访问，HTTP {status_code}",
                 latency_ms=latency_ms,
+            )
+        if completed.returncode != 0:
+            raw_message = (completed.stderr or completed.stdout or f"curl exit {completed.returncode}").strip()
+            return NetworkCheck(
+                name="google_flights",
+                status="error",
+                ok=False,
+                message=_friendly_google_error(raw_message),
+                latency_ms=latency_ms,
+                details={"raw_message": raw_message, "curl_exit_code": completed.returncode},
             )
         return NetworkCheck(
             name="google_flights",
             status="warning",
             ok=False,
-            message=f"Google Flights 返回 HTTP {response.status_code}",
+            message=f"Google Flights 返回 HTTP {status_code}",
             latency_ms=latency_ms,
         )
-    except httpx.TimeoutException:
+    except subprocess.TimeoutExpired:
         latency_ms = int((time.monotonic() - start) * 1000)
-        return NetworkCheck(name="google_flights", status="error", ok=False, message="Google Flights 连通性检查超时", latency_ms=latency_ms)
+        return NetworkCheck(
+            name="google_flights",
+            status="error",
+            ok=False,
+            message="Google Flights 连接超时，当前网络可能不可达或代理未生效",
+            latency_ms=latency_ms,
+            details={"raw_message": "subprocess timeout"},
+        )
     except httpx.HTTPError as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
         return NetworkCheck(name="google_flights", status="error", ok=False, message=f"Google Flights 不可达：{exc}", latency_ms=latency_ms)
     except Exception as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
         return NetworkCheck(name="google_flights", status="error", ok=False, message=f"Google Flights 检查失败：{exc}", latency_ms=latency_ms)
-    finally:
-        if clear_proxy:
-            for key, value in previous.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
 
 
-def _proxy_candidates() -> list[ProxyCandidate]:
+def _friendly_google_error(raw_message: str) -> str:
+    normalized = raw_message.lower()
+    if "timed out" in normalized or "timeout" in normalized or "operation timed out" in normalized:
+        return "Google Flights 连接超时，当前网络可能不可达或代理未生效"
+    if "could not resolve" in normalized or "name or service not known" in normalized:
+        return "Google Flights 域名解析失败，请检查当前网络或 DNS 设置"
+    if "failed to connect" in normalized or "connection refused" in normalized:
+        return "Google Flights 连接失败，请检查当前网络或代理是否可用"
+    return "Google Flights 暂时不可达，请检查当前网络或代理设置"
+
+
+def _proxy_candidates(*, include_environment: bool = True) -> list[ProxyCandidate]:
     candidates: list[ProxyCandidate] = []
     candidates.extend(_saved_proxy_candidates())
-    candidates.extend(_environment_proxy_candidates())
     candidates.extend(_macos_proxy_candidates())
     candidates.extend(_common_local_proxy_candidates())
+    if include_environment:
+        candidates.extend(_environment_proxy_candidates())
     result: list[ProxyCandidate] = []
     seen: set[tuple[str | None, str | None]] = set()
     for candidate in candidates:
@@ -477,6 +527,12 @@ def _persist_proxy_candidate(candidate: ProxyCandidate) -> None:
         update_app_settings(http_proxy=candidate.http_proxy or "", all_proxy=candidate.all_proxy or "")
     except Exception:
         pass
+
+
+def _activate_proxy_candidate(candidate: ProxyCandidate) -> None:
+    for key in PROXY_ENV_KEYS:
+        os.environ.pop(key, None)
+    os.environ.update(_candidate_env(candidate))
 
 
 def _candidate_payload(candidate: ProxyCandidate) -> dict[str, Any]:

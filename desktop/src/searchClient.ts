@@ -59,7 +59,7 @@ export async function startGuiSearch(
   };
 }
 
-export async function runNetworkCheck(payload: GuiSearchPayload, mode: "startup" | "manual" = "manual", invokeFn?: NetworkInvokeFn): Promise<NetworkCheckResult> {
+export async function runNetworkCheck(payload: GuiSearchPayload, mode: "first_run" | "startup" | "manual" = "manual", invokeFn?: NetworkInvokeFn): Promise<NetworkCheckResult> {
   if (invokeFn) {
     return invokeFn("network_check", { payload, mode });
   }
@@ -69,7 +69,8 @@ export async function runNetworkCheck(payload: GuiSearchPayload, mode: "startup"
   await wait(160);
   return {
     status: "ok",
-    guide_status: mode === "startup" ? "direct_ok" : "proxy_auto_configured",
+    guide_status: mode === "manual" ? "proxy_auto_configured" : "direct_ok",
+    user_message: "网络检测通过",
     auto_configured: false,
     manual_required: false,
     modules: [
@@ -182,7 +183,7 @@ export async function updateHistorySchedule(groupId: string, status: ScheduleSta
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
-  if (!hasTauri()) return { rate_limit_retry_minutes: 5, analytics_consent: "unset", analytics_install_id: "browser-preview", http_proxy: "", all_proxy: "" };
+  if (!hasTauri()) return { rate_limit_retry_minutes: 5, analytics_consent: "unset", analytics_install_id: "browser-preview", http_proxy: "", all_proxy: "", first_network_check_succeeded: "false" };
   const response = await invoke<{ item: AppSettings }>("app_settings_get");
   return response.item;
 }
@@ -193,6 +194,7 @@ export async function updateAppSettings(update: AppSettingsUpdate, invokeFn?: Se
     analyticsConsent: update.analytics_consent,
     httpProxy: update.http_proxy,
     allProxy: update.all_proxy,
+    firstNetworkCheckSucceeded: update.first_network_check_succeeded,
   };
   if (invokeFn) {
     const response = await invokeFn("app_settings_update", args);
@@ -204,6 +206,7 @@ export async function updateAppSettings(update: AppSettingsUpdate, invokeFn?: Se
     analytics_install_id: "browser-preview",
     http_proxy: update.http_proxy ?? "",
     all_proxy: update.all_proxy ?? "",
+    first_network_check_succeeded: update.first_network_check_succeeded ?? "false",
   };
   const response = await invoke<{ item: AppSettings }>("app_settings_update", args);
   return response.item;
