@@ -1,418 +1,197 @@
-# Farello
+<p align="right">
+  <a href="./README.en.md">English</a> · <strong>简体中文</strong>
+</p>
 
-新版本给这个小工具起了一个名字：Farello
-Farello 是一个航班复杂搜索工具，用于多目的地候选、开口航线组合和价格排序。同时具备设置自动定时搜索并通过Apple reminds提醒。
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Farello 组合多目的地与开口航线搜索，按价格排序，并在 macOS 上定时监控价格。">
+</p>
 
-当前数据源以 Google Flights 为主，航班请求都是由用户本机网络发起。
+<p align="center">
+  <a href="https://github.com/suneveryday/AdvSearchFlights/releases"><img alt="最新版本" src="https://img.shields.io/github/v/release/suneveryday/AdvSearchFlights?style=flat-square&color=0878d1"></a>
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-桌面应用-111827?style=flat-square&logo=apple&logoColor=white">
+  <img alt="Python 3.11 及以上" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white">
+  <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-238636?style=flat-square"></a>
+</p>
 
-## 核心功能
+Farello 是一款本地优先的复杂航班搜索与价格监控工具，适合普通往返搜索难以覆盖的行程。输入一个出发地和最多五个候选目的地，它会展开城市机场、组合往返与开口航线、过滤不合适的航段，并按总价排序。
 
-- 出发地支持中文城市名或 IATA 机场代码，单选输入。
-- 目的地支持 1 到 5 个候选城市或机场。
-- 城市会自动展开为多个机场，例如 `上海 -> PVG/SHA`、`北京 -> PEK/PKX`。
-- 选择 1 个目的地时，生成同一城市到达和返回的往返航班。
-- 选择 2 个或更多候选目的地时，从候选城市中组合往返和不走回头路的开口航线。
-- 每段单程默认过滤：中转次数 `<= 1`，单次中转停留 `<= 10` 小时。
-- 输出机场三字码、机场中文名、航空公司中文名称、航班号、执飞机型、起降时间、中转机场、中转停留小时数和单程价格。
-- 支持舱位选择：经济舱、超级经济舱、商务舱、头等舱。
-- 历史组可开启 1–48 小时定时搜索，默认 8 小时，最多同时启用 5 组；确认设置后立即搜索一次，后续仅在 App 运行期间执行。
-- 定时搜索可设置价格阈值；最低往返总价严格低于阈值时，通过 macOS 桌面通知和 Apple Reminders 提醒，之后仅在出现更低价格时再次提醒。
+- **一次探索更多组合** — 同时比较单目的地往返与多城市开口航线。
+- **保留真正有用的细节** — 查看机场、航司、航班号、机型、起降时间、中转、停留时长与分段价格。
+- **在本机持续看价** — 定时重复搜索；总价低于阈值时，通过 macOS 通知和 Apple Reminders 提醒。
 
-### 匿名使用统计
-Farello 仅在首次启动得到明确授权后初始化 PostHog。用户可以在“设置 → 隐私与统计”中随时关闭。统计只包含应用版本、系统平台、工作区、搜索是否成功、结果数量区间、耗时区间、标准化错误类别、定时搜索配置和提醒渠道是否成功。
-以下内容永不上传：航线、日期、机场、价格、搜索输入和结果、历史组或批次 ID、购买链接、提醒阈值、原始错误、姓名、邮箱、账号或硬件标识。应用使用本地 SQLite 中随机生成的匿名安装 ID，不启用自动点击采集、页面浏览、Session Replay 或用户画像。
+> Farello 当前主要通过 [`fli`](https://github.com/punitarani/fli) 使用 Google Flights 数据。搜索请求从你的电脑发出，结果保存在本地 SQLite 数据库中。
 
-历史组的闹钟按钮用于配置定时搜索。提醒功能需要检查以下系统权限：
+## 从候选目的地到值得预订的路线
+
+| 你的输入 | Farello 生成的路线 |
+| --- | --- |
+| `上海 → 墨尔本` | 常规往返：上海 → 墨尔本 → 上海 |
+| `上海 → 墨尔本、悉尼` | 往返加开口航线，例如：上海 → 墨尔本 · 悉尼 → 上海 |
+
+每段单程默认最多中转一次、每次中转不超过十小时。Farello 会先过滤航段，再组合完整行程，并按人民币总价从低到高排序。
+
+<p align="center">
+  <img src="./assets/readme/workflow.svg" width="100%" alt="Farello 展开城市机场、搜索各航段、组合并排序行程，随后可选地定时监控价格并发送提醒。">
+</p>
+
+## 你可以做什么
+
+- 输入中文城市名或 IATA 机场代码；城市会展开为已知机场，例如 `上海 → PVG/SHA`。
+- 从 1–5 个候选目的地中搜索经济舱、超级经济舱、商务舱或头等舱。
+- 生成同城往返与不走回头路的开口航线组合。
+- 先按中转次数与停留时长过滤，再按总价排序。
+- 在桌面端查看搜索历史、价格趋势和保存的路线组。
+- 按价格、航司、起降机场、中转次数、停留时长和排除中转机场筛选历史。
+- 为最多五个历史组设置 1–48 小时的定时搜索。
+- 只在低于价格阈值时提醒；之后仅在出现更低价时再次提醒。
+- 通过 macOS 桌面应用、CLI、稳定 JSON 子进程协议或 Python 包使用。
+
+## 快速开始
+
+### 不联网体验 CLI
+
+Farello 需要 Python 3.11 或更高版本。
+
+```bash
+git clone https://github.com/suneveryday/AdvSearchFlights.git
+cd AdvSearchFlights
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+
+adv-search-flights search \
+  --origin SHA \
+  --dest MEL SYD \
+  --departure 2026-09-29 \
+  --return-date 2026-10-07 \
+  --provider mock \
+  --format table \
+  --limit 2 \
+  --no-cooldown
+```
+
+准备从本机网络查询真实数据时，把 `--provider mock` 改为 `--provider auto`。
+
+### 从源码运行 macOS 应用
+
+桌面端由 React、Tauri 2 与内嵌 Python sidecar 组成。除 Python 外，还需安装 Node.js 与 Rust 工具链。
+
+```bash
+# 在仓库根目录并激活 Python 环境后执行
+cd desktop
+npm install
+npm run build:sidecar
+npm run tauri dev
+```
+
+首次网络检查会先尝试当前网络；直连失败时，可以发现本机可用代理。Farello 不会上传代理凭证。
+
+## CLI 用法
+
+```bash
+adv-search-flights search \
+  --origin 上海 \
+  --dest 东京 静冈 \
+  --departure 2026-09-29 \
+  --return-date 2026-10-07 \
+  --provider auto \
+  --cabin-class ECONOMY \
+  --max-stops 1 \
+  --max-layover-hours 10 \
+  --format table \
+  --limit 20
+```
+
+执行 `adv-search-flights search --help` 查看完整参数。
+
+<details>
+<summary><strong>核心搜索参数</strong></summary>
+
+| 参数 | 默认值 | 用途 |
+| --- | --- | --- |
+| `--origin` | 必填 | 中文城市名或 IATA 机场代码 |
+| `--dest` | 必填 | 1–5 个候选城市或机场 |
+| `--departure` | 必填 | `YYYY-MM-DD` 格式的去程日期 |
+| `--return-date` | 必填 | `YYYY-MM-DD` 格式的回程日期 |
+| `--provider` | `auto` | `auto`、`fli`、`skyscanner` 或 `mock` |
+| `--format` | `table` | `table`、`text` 或 `json` |
+| `--max-stops` | `1` | 每段单程的最大中转次数 |
+| `--max-layover-hours` | `10` | 每次中转的最长停留小时数 |
+| `--cabin-class` | `ECONOMY` | `ECONOMY`、`PREMIUM_ECONOMY`、`BUSINESS` 或 `FIRST` |
+| `--limit` | 不限制 | 筛选与排序后截取结果 |
+| `--cooldown-seconds` | `90` | 真实数据调用之间的间隔 |
+| `--retry-waits` | `30,60,90` | 逗号分隔的重试等待时间 |
+
+</details>
+
+<details>
+<summary><strong>历史与 GUI 协议命令</strong></summary>
+
+```bash
+adv-search-flights history-list --format json
+adv-search-flights history-group-list --format json
+adv-search-flights history-group-get <group_id> --format json
+adv-search-flights history-group-results <group_id> \
+  --filters '{"max_total_price": 10000}' \
+  --format json
+adv-search-flights history-group-delete <group_id> --format json
+```
+
+`gui-search` 从 stdin 接收一个 JSON 请求，返回包含 `ok`、`response`、`network_status`、`provider_status`、`error` 与 `history_batch_id` 的稳定 envelope。桌面端与 Python 的完整调用流程见[架构说明](./docs/architecture.md)。
+
+</details>
+
+## 工作原理
+
+1. 把出发城市与候选目的地解析为已知机场。
+2. 查询相关机场组合的去程与回程航班。
+3. 移除不符合价格、中转或停留时长限制的航段。
+4. 把可用航段组合为往返和开口航线。
+5. 按总价排序，并输出表格、文本或 JSON。
+6. 把成功的真实搜索保存在本地，供桌面历史与定时监控复用。
+
+桌面端通过本地子进程调用 Python 引擎，不会启动本地 Web 服务器。数据源、组合规则、网络诊断和 UI 相互隔离，便于独立测试。完整模块图见[架构说明](./docs/architecture.md)。
+
+## 定时搜索与提醒
+
+在历史组中点击闹钟按钮，可以配置搜索间隔与可选价格阈值。确认后 Farello 会立即搜索一次，后续任务仅在应用保持运行时执行。
+
+提醒需要以下 macOS 权限：
+
 - `系统设置 → 通知 → Farello`
 - `系统设置 → 隐私与安全性 → 自动化 → Reminders`
 
+权限失败不会中断定时搜索本身。
 
-## 安装
+## 隐私
 
-```powershell
-cd AdvSearchFlights
-python -m pip install -e ".[dev]"
-```
+首次启动时只有在你明确同意后才会启用匿名统计，也可以随时在**设置 → 隐私与统计**中关闭。启用后，Farello 只发送应用版本、系统平台、工作区、搜索是否成功、结果数量与耗时区间、标准化错误分类、定时搜索配置和提醒渠道是否成功等粗粒度运行事件。
 
-仅安装运行依赖：
+航线、日期、机场、价格、搜索输入与结果、历史 ID、购买链接、提醒阈值、原始错误、身份、账号信息与硬件标识永不上传。Farello 使用本地随机安装 ID，并关闭自动点击采集、页面浏览、Session Replay 与用户画像。
 
-```powershell
-python -m pip install -r requirements.txt
-```
+## 当前边界
 
-## CLI 命令
+- 桌面应用当前面向 macOS；Python CLI 可独立开发和测试。
+- 定时搜索仅在 Farello 运行期间执行。
+- 真实结果依赖第三方数据源与用户网络；数据源可能变化、限流或不返回有效价格。
+- `auto` 优先通过 `fli` 使用 Google Flights；可选 Skyscanner 适配器仍为实验性功能。
+- Farello 用于比较行程，最终预订在外部数据源链接中完成。
 
-```powershell
-adv-search-flights search --origin 北京 --dest 上海 --departure 2026-06-20 --return-date 2026-06-26 --provider auto --format table
-```
-
-GUI JSON 协议示例：
+## 开发
 
 ```bash
-printf '%s' '{
-  "origin": "上海",
-  "destinations": ["墨尔本", "悉尼"],
-  "departure": "2026-09-29",
-  "return_date": "2026-10-07",
-  "provider": "mock",
-  "format": "json",
-  "cabin_class": "ECONOMY",
-  "limit": 50,
-  "no_cooldown": true,
-  "retry_waits": [0, 0, 0]
-}' | adv-search-flights gui-search --skip-network-check
-```
-
-`gui-search` 输出固定 JSON envelope：
-
-- `ok`：本次调用是否完成。
-- `response`：完整 `SearchResponse` JSON，包含 `result_count`、`results`、`rendered`、`warnings`。
-- `network_status`：代理、`fli` CLI、Google Flights 连通性检查结果。
-- `provider_status`：数据源运行状态、warning 分类、结果数量。
-- `error`：参数错误、搜索错误或 JSON 解析错误。
-- `history_batch_id`：真实搜索结果成功保存后的本地历史批次 ID；mock 搜索固定为空。
-
-完整示例：
-
-```powershell
-adv-search-flights search `
-  --origin 上海 `
-  --dest 东京 静冈 `
-  --departure 2026-06-29 `
-  --return-date 2026-07-07 `
-  --provider auto `
-  --format table `
-  --max-stops 1 `
-  --max-layover-hours 10 `
-  --adults 1 `
-  --currency CNY `
-  --cabin-class ECONOMY `
-  --limit 20 `
-  --cooldown-seconds 90 `
-  --retry-waits 30,60,90
-```
-
-## 参数说明
-
-| CLI 参数 | 必填 | 默认值 | 说明 |
-|---|---:|---|---|
-| `--origin` | 是 | - | 出发城市或机场，支持中文名或 IATA 代码；城市会展开为全部已知机场。 |
-| `--dest` | 是 | - | 候选目的地列表，支持 1 到 5 个中文城市名或 IATA 代码；1 个目的地生成往返，2 个或更多候选目的地可生成开口航线。 |
-| `--departure` | 是 | - | 去程日期，格式 `YYYY-MM-DD`。 |
-| `--return-date` | 是 | - | 回程日期，格式 `YYYY-MM-DD`。 |
-| `--provider` | 否 | `auto` | 数据源：`auto`、`fli`、`skyscanner`、`mock`。 |
-| `--format` | 否 | `table` | 输出格式：`table`、`text`、`json`。 |
-| `--max-stops` | 否 | `1` | 每段单程允许的最大中转次数。 |
-| `--max-layover-hours` | 否 | `10` | 每次中转允许的最长停留小时数。 |
-| `--adults` | 否 | `1` | 成人乘客数。 |
-| `--currency` | 否 | `CNY` | 输出和排序币种。当前总价以人民币展示。 |
-| `--cabin-class` | 否 | `ECONOMY` | 舱位：`ECONOMY`、`PREMIUM_ECONOMY`、`BUSINESS`、`FIRST`。 |
-| `--limit` | 否 | 无限制 | 最多返回多少条组合结果；筛选排序完成后再截取。 |
-| `--cooldown-seconds` | 否 | `90` | 每次真实数据调用之间的冷却秒数。 |
-| `--retry-waits` | 否 | `30,60,90` | 失败重试等待秒数，逗号分隔。 |
-| `--no-cooldown` | 否 | 关闭 | 本次 CLI 搜索跳过冷却，适合本地验证。 |
-
-## 输出字段
-
-所有输出格式都会按总价从低到高排序，并包含以下字段：
-
-- 总价
-- 去程行程
-- 去程每段航线起降时间
-- 去程中转次数和停留时间
-- 去程价格
-- 回程行程
-- 回程每段航线起降时间
-- 回程中转次数和停留时间
-- 回程价格
-
-每段航线都会展示：
-
-- 机场三字码
-- 机场中文名
-- 航空公司中文名称
-- 航班号
-- 执飞机型
-- 起飞时间
-- 到达时间
-
-历史 CLI：
-
-```bash
-adv-search-flights history-list --format json
-adv-search-flights history-get <batch_id> --format json
-adv-search-flights history-group-list --format json
-adv-search-flights history-group-get <group_id> --format json
-adv-search-flights history-group-results <group_id> --filters '{"max_total_price": 10000}' --format json
-adv-search-flights history-group-delete <group_id> --format json
-```
-
-GUI 的独立历史工作区支持价格上限、包含/排除航司、起降机场、中转次数、单次停留和排除中转机场筛选。某批次无匹配结果时，趋势图保留时间点并显示断点。
-
-## Python 调用
-
-```python
-import asyncio
-
-from adv_search_flights.control.rate_limit import DataCallController
-from adv_search_flights.domain.models import SearchRequest
-from adv_search_flights.providers import build_provider
-from adv_search_flights.search.engine import FlightSearchEngine
-
-
-async def main():
-    request = SearchRequest(
-        origin="上海",
-        destinations=["东京", "静冈"],
-        departure="2026-06-29",
-        return_date="2026-07-07",
-        provider="auto",
-        output_format="json",
-        max_stops=1,
-        max_layover_hours=10,
-        adults=1,
-        currency="CNY",
-        cabin_class="ECONOMY",
-        limit=20,
-    )
-    engine = FlightSearchEngine(
-        provider=build_provider(request.provider),
-        controller=DataCallController(cooldown_seconds=90),
-    )
-    response = await engine.search(request)
-    print(response.rendered)
-
-
-asyncio.run(main())
-```
-
-## 数据源配置
-
-Google Flights / `fli` 默认 15 秒超时：
-
-```powershell
-$env:FLI_QUERY_CURRENCY="USD"
-$env:FLI_LANGUAGE="en-US"
-$env:FLI_COUNTRY="US"
-$env:FLI_TIMEOUT_SECONDS="15"
-$env:FLIGHT_USD_CNY_RATE="7.2"
-```
-
-## 引用源
-
-本项目的数据源适配参考以下开源项目：
-
-- Google Flights / `fli`: https://github.com/punitarani/fli
-- Skyscanner experimental fallback: https://github.com/irrisolto/skyscanner
-
-Farello 使用 MIT License 发布。可选第三方数据源库可能使用各自的许可证；安装或使用这些库时，请自行阅读并遵守对应许可证条款。
-
-## 测试
-
-```powershell
 python -m pytest
+
+cd desktop
+npm test
+npm run build
 ```
 
----
+欢迎贡献。请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)，保持数据源解析逻辑相互隔离，并为行为变更补充针对性测试。安全问题请遵循 [SECURITY.md](./SECURITY.md)。
 
-下面是英文版：
+## 致谢
 
-Farello
+- Google Flights 适配：[`punitarani/fli`](https://github.com/punitarani/fli)
+- 实验性 Skyscanner fallback：[`irrisolto/skyscanner`](https://github.com/irrisolto/skyscanner)
 
-The new version of this small utility has been given a name: Farello.
-
-Farello is an advanced flight search tool designed for multi-destination candidates, open-jaw route combinations, and price ranking. It also supports automatic scheduled searches and reminders through Apple Reminders.
-
-The current primary data source is Google Flights, and all flight requests are initiated through the user’s local network.
-
-Core Features
-
-* The origin supports either a Chinese city name or an IATA airport code, with single-selection input.
-* Destinations support 1 to 5 candidate cities or airports.
-* Cities are automatically expanded into multiple airports, for example: Shanghai -> PVG/SHA, Beijing -> PEK/PKX.
-* When 1 destination is selected, Farello generates round-trip flights arriving at and returning from the same city.
-* When 2 or more candidate destinations are selected, Farello generates round-trip and non-backtracking open-jaw route combinations from the candidate cities.
-* Each one-way segment is filtered by default with: number of stops <= 1, and each layover duration <= 10 hours.
-* Output includes airport three-letter codes, Chinese airport names, Chinese airline names, flight numbers, aircraft type, departure and arrival times, layover airports, layover duration in hours, and one-way prices.
-* Cabin class selection is supported: Economy, Premium Economy, Business, and First Class.
-* Historical groups can enable scheduled searches from 1 to 48 hours, with a default interval of 8 hours. Up to 5 groups can be enabled at the same time. After confirmation, Farello runs one search immediately; subsequent scheduled searches only run while the app is open.
-* Scheduled searches can include a price threshold. When the lowest round-trip total price is strictly lower than the threshold, Farello sends a macOS desktop notification and an Apple Reminders reminder. After that, it only reminds again when an even lower price appears.
-
-Anonymous Usage Analytics
-
-Farello only initializes PostHog after explicit authorization on first launch. Users can disable it at any time in Settings → Privacy & Analytics.
-
-Analytics only include the app version, system platform, workspace, whether the search succeeded, result count range, duration range, standardized error category, scheduled search configuration, and whether reminder channels succeeded.
-
-The following content is never uploaded: routes, dates, airports, prices, search inputs and results, historical group or batch IDs, purchase links, reminder thresholds, raw errors, names, email addresses, accounts, or hardware identifiers.
-
-The app uses a randomly generated anonymous installation ID stored in the local SQLite database. It does not enable automatic click tracking, page view tracking, Session Replay, or user profiles.
-
-The alarm button in a historical group is used to configure scheduled searches. The reminder feature requires checking the following system permissions:
-
-* System Settings → Notifications → Farello
-* System Settings → Privacy & Security → Automation → Reminders
-
-Installation
-
-cd AdvSearchFlights
-python -m pip install -e ".[dev]"
-
-Install runtime dependencies only:
-
-python -m pip install -r requirements.txt
-
-CLI Commands
-
-adv-search-flights search --origin 北京 --dest 上海 --departure 2026-06-20 --return-date 2026-06-26 --provider auto --format table
-
-GUI JSON protocol example:
-
-printf '%s' '{
-  "origin": "上海",
-  "destinations": ["墨尔本", "悉尼"],
-  "departure": "2026-09-29",
-  "return_date": "2026-10-07",
-  "provider": "mock",
-  "format": "json",
-  "cabin_class": "ECONOMY",
-  "limit": 50,
-  "no_cooldown": true,
-  "retry_waits": [0, 0, 0]
-}' | adv-search-flights gui-search --skip-network-check
-
-gui-search outputs a fixed JSON envelope:
-
-* ok: Whether this invocation completed.
-* response: The full SearchResponse JSON, including result_count, results, rendered, and warnings.
-* network_status: Proxy, fli CLI, and Google Flights connectivity check results.
-* provider_status: Data source runtime status, warning categories, and result count.
-* error: Parameter errors, search errors, or JSON parsing errors.
-* history_batch_id: Local historical batch ID after real search results are successfully saved; always empty for mock searches.
-
-Full example:
-
-adv-search-flights search `
-  --origin 上海 `
-  --dest 东京 静冈 `
-  --departure 2026-06-29 `
-  --return-date 2026-07-07 `
-  --provider auto `
-  --format table `
-  --max-stops 1 `
-  --max-layover-hours 10 `
-  --adults 1 `
-  --currency CNY `
-  --cabin-class ECONOMY `
-  --limit 20 `
-  --cooldown-seconds 90 `
-  --retry-waits 30,60,90
-
-Parameters
-
-CLI Parameter	Required	Default	Description
---origin	Yes	-	Origin city or airport. Supports Chinese names or IATA codes. Cities are expanded into all known airports.
---dest	Yes	-	Candidate destination list. Supports 1 to 5 Chinese city names or IATA codes. 1 destination generates a round trip; 2 or more candidate destinations can generate open-jaw routes.
---departure	Yes	-	Departure date in YYYY-MM-DD format.
---return-date	Yes	-	Return date in YYYY-MM-DD format.
---provider	No	auto	Data source: auto, fli, skyscanner, or mock.
---format	No	table	Output format: table, text, or json.
---max-stops	No	1	Maximum number of stops allowed for each one-way segment.
---max-layover-hours	No	10	Maximum allowed duration for each layover, in hours.
---adults	No	1	Number of adult passengers.
---currency	No	CNY	Currency used for output and sorting. Current total prices are displayed in Chinese yuan.
---cabin-class	No	ECONOMY	Cabin class: ECONOMY, PREMIUM_ECONOMY, BUSINESS, or FIRST.
---limit	No	Unlimited	Maximum number of combined results to return. Results are truncated after filtering and sorting.
---cooldown-seconds	No	90	Cooldown seconds between real data calls.
---retry-waits	No	30,60,90	Retry wait durations after failures, separated by commas.
---no-cooldown	No	Disabled	Skip cooldown for this CLI search. Suitable for local validation.
-
-Output Fields
-
-All output formats are sorted by total price from low to high and include the following fields:
-
-* Total price
-* Outbound itinerary
-* Departure and arrival times for each outbound segment
-* Number of outbound stops and layover duration
-* Outbound price
-* Return itinerary
-* Departure and arrival times for each return segment
-* Number of return stops and layover duration
-* Return price
-
-Each flight segment displays:
-
-* Airport three-letter code
-* Chinese airport name
-* Chinese airline name
-* Flight number
-* Aircraft type
-* Departure time
-* Arrival time
-
-Historical CLI:
-
-adv-search-flights history-list --format json
-adv-search-flights history-get <batch_id> --format json
-adv-search-flights history-group-list --format json
-adv-search-flights history-group-get <group_id> --format json
-adv-search-flights history-group-results <group_id> --filters '{"max_total_price": 10000}' --format json
-adv-search-flights history-group-delete <group_id> --format json
-
-The GUI’s standalone history workspace supports filtering by maximum price, included or excluded airlines, departure and arrival airports, number of stops, individual layover duration, and excluded layover airports.
-
-When a batch has no matching results, the trend chart keeps the time point and displays it as a gap.
-
-Python Usage
-
-import asyncio
-from adv_search_flights.control.rate_limit import DataCallController
-from adv_search_flights.domain.models import SearchRequest
-from adv_search_flights.providers import build_provider
-from adv_search_flights.search.engine import FlightSearchEngine
-async def main():
-    request = SearchRequest(
-        origin="上海",
-        destinations=["东京", "静冈"],
-        departure="2026-06-29",
-        return_date="2026-07-07",
-        provider="auto",
-        output_format="json",
-        max_stops=1,
-        max_layover_hours=10,
-        adults=1,
-        currency="CNY",
-        cabin_class="ECONOMY",
-        limit=20,
-    )
-    engine = FlightSearchEngine(
-        provider=build_provider(request.provider),
-        controller=DataCallController(cooldown_seconds=90),
-    )
-    response = await engine.search(request)
-    print(response.rendered)
-asyncio.run(main())
-
-Data Source Configuration
-
-Google Flights / fli uses a default timeout of 15 seconds:
-
-$env:FLI_QUERY_CURRENCY="USD"
-$env:FLI_LANGUAGE="en-US"
-$env:FLI_COUNTRY="US"
-$env:FLI_TIMEOUT_SECONDS="15"
-$env:FLIGHT_USD_CNY_RATE="7.2"
-
-References
-
-This project’s data source adapters refer to the following open-source projects:
-
-* Google Flights / fli: https://github.com/punitarani/fli
-* Skyscanner experimental fallback: https://github.com/irrisolto/skyscanner
-
-Farello is released under the MIT License. Optional third-party data source libraries may use their own licenses. Please read and comply with the corresponding license terms when installing or using those libraries.
-
-Tests
-
-python -m pytest
+Farello 采用 [MIT License](./LICENSE) 发布。可选第三方数据源可能使用各自的许可证。
