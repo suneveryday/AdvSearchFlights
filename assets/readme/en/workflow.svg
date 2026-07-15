@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="250" viewBox="0 0 1200 250" role="img" aria-labelledby="title desc">
+  <title id="title">How Farello turns candidate destinations into monitored itineraries</title>
+  <desc id="desc">Resolve airports, search route legs, combine and rank itineraries, then monitor prices and alert.</desc>
+  <rect width="1200" height="250" rx="24" fill="#f5f7fa"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+    <text x="48" y="46" fill="#65758a" font-size="13" font-weight="700" letter-spacing="1.8">FROM INPUT TO PRICE ALERT</text>
+    <path d="M250 137H331M519 137H600M788 137H869" stroke="#8ba3bb" stroke-width="2" stroke-dasharray="5 7"/>
+    <g transform="translate(48 76)"><rect width="202" height="122" rx="16" fill="#fff" stroke="#dbe3ec"/><circle cx="31" cy="31" r="15" fill="#0878d1"/><text x="31" y="36" text-anchor="middle" fill="#fff" font-size="14" font-weight="750">1</text><text x="56" y="35" fill="#15283d" font-size="18" font-weight="750">Resolve airports</text><text x="24" y="75" fill="#65758a" font-size="14">Shanghai → PVG / SHA</text><text x="24" y="99" fill="#65758a" font-size="14">1–5 candidate cities</text></g>
+    <g transform="translate(331 76)"><rect width="188" height="122" rx="16" fill="#fff" stroke="#dbe3ec"/><circle cx="31" cy="31" r="15" fill="#0878d1"/><text x="31" y="36" text-anchor="middle" fill="#fff" font-size="14" font-weight="750">2</text><text x="56" y="35" fill="#15283d" font-size="18" font-weight="750">Search legs</text><text x="24" y="75" fill="#65758a" font-size="14">Outbound + return</text><text x="24" y="99" fill="#65758a" font-size="14">Filter stops &amp; layovers</text></g>
+    <g transform="translate(600 76)"><rect width="188" height="122" rx="16" fill="#fff" stroke="#dbe3ec"/><circle cx="31" cy="31" r="15" fill="#0878d1"/><text x="31" y="36" text-anchor="middle" fill="#fff" font-size="14" font-weight="750">3</text><text x="56" y="35" fill="#15283d" font-size="18" font-weight="750">Combine</text><text x="24" y="75" fill="#65758a" font-size="14">Round trip + open-jaw</text><text x="24" y="99" fill="#65758a" font-size="14">Rank by total price</text></g>
+    <g transform="translate(869 76)"><rect width="283" height="122" rx="16" fill="#0d2741" stroke="#0d2741"/><circle cx="31" cy="31" r="15" fill="#79d6c8"/><text x="31" y="36" text-anchor="middle" fill="#0d2741" font-size="14" font-weight="750">4</text><text x="56" y="35" fill="#f7fbff" font-size="18" font-weight="750">Monitor &amp; alert</text><text x="24" y="75" fill="#bed0e0" font-size="14">Repeat every 1–48 hours</text><text x="24" y="99" fill="#79d6c8" font-size="14" font-weight="700">Notify only below your threshold</text></g>
+  </g>
+</svg>

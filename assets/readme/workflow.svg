@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="250" viewBox="0 0 1200 250" role="img" aria-labelledby="title desc">
+  <title id="title">Farello 如何把候选目的地变成可监控的行程</title>
+  <desc id="desc">展开机场、搜索航段、组合并排序行程，随后定时监控价格并提醒。</desc>
+  <rect width="1200" height="250" rx="24" fill="#f5f7fa"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif">
+    <text x="48" y="46" fill="#65758a" font-size="13" font-weight="700" letter-spacing="1.8">从输入到低价提醒</text>
+    <path d="M250 137H331M519 137H600M788 137H869" stroke="#8ba3bb" stroke-width="2" stroke-dasharray="5 7"/>
+    <g transform="translate(48 76)"><rect width="202" height="122" rx="16" fill="#fff" stroke="#dbe3ec"/><circle cx="31" cy="31" r="15" fill="#0878d1"/><text x="31" y="36" text-anchor="middle" fill="#fff" font-size="14" font-weight="750">1</text><text x="56" y="35" fill="#15283d" font-size="18" font-weight="750">展开机场</text><text x="24" y="75" fill="#65758a" font-size="14">上海 → PVG / SHA</text><text x="24" y="99" fill="#65758a" font-size="14">1–5 个候选城市</text></g>
+    <g transform="translate(331 76)"><rect width="188" height="122" rx="16" fill="#fff" stroke="#dbe3ec"/><circle cx="31" cy="31" r="15" fill="#0878d1"/><text x="31" y="36" text-anchor="middle" fill="#fff" font-size="14" font-weight="750">2</text><text x="56" y="35" fill="#15283d" font-size="18" font-weight="750">搜索航段</text><text x="24" y="75" fill="#65758a" font-size="14">查询去程与回程</text><text x="24" y="99" fill="#65758a" font-size="14">过滤中转与停留</text></g>
+    <g transform="translate(600 76)"><rect width="188" height="122" rx="16" fill="#fff" stroke="#dbe3ec"/><circle cx="31" cy="31" r="15" fill="#0878d1"/><text x="31" y="36" text-anchor="middle" fill="#fff" font-size="14" font-weight="750">3</text><text x="56" y="35" fill="#15283d" font-size="18" font-weight="750">组合排序</text><text x="24" y="75" fill="#65758a" font-size="14">往返 + 开口航线</text><text x="24" y="99" fill="#65758a" font-size="14">按总价从低到高</text></g>
+    <g transform="translate(869 76)"><rect width="283" height="122" rx="16" fill="#0d2741" stroke="#0d2741"/><circle cx="31" cy="31" r="15" fill="#79d6c8"/><text x="31" y="36" text-anchor="middle" fill="#0d2741" font-size="14" font-weight="750">4</text><text x="56" y="35" fill="#f7fbff" font-size="18" font-weight="750">定时看价并提醒</text><text x="24" y="75" fill="#bed0e0" font-size="14">每 1–48 小时重复搜索</text><text x="24" y="99" fill="#79d6c8" font-size="14" font-weight="700">只在低于阈值时通知</text></g>
+  </g>
+</svg>
