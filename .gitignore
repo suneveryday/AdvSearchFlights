@@ -32,6 +32,7 @@ desktop/src-tauri/binaries/farello-backend-*
 *.app
 tmp/
 .DS_Store
+README*.bak-*
 stage*-gui-check.png
 .idea/
 .vscode/
