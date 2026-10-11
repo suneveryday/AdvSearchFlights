@@ -66,6 +66,7 @@ describe("history group selection after deletion", () => {
 
 describe("history batch timestamp", () => {
   it("separates the local date and time for compact batch cards", () => {
-    expect(formatHistoryBatchTimestamp("2026-06-19T12:30:00+08:00")).toEqual({ date: "06-19", time: "12:30" });
+    const localTimestamp = new Date(2026, 5, 19, 12, 30).toISOString();
+    expect(formatHistoryBatchTimestamp(localTimestamp)).toEqual({ date: "06-19", time: "12:30" });
   });
 });
