@@ -379,6 +379,14 @@ def test_alert_threshold_is_strictly_lower(tmp_path, monkeypatch) -> None:
 
 
 def test_schedule_limit_expiry_reset_and_delete_cascade(tmp_path, monkeypatch) -> None:
+    now = datetime(2026, 6, 19, tzinfo=timezone.utc)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+
+    monkeypatch.setattr(history_module, "datetime", FixedDatetime)
     path = tmp_path / "history.sqlite3"
     monkeypatch.setenv("ADV_SEARCH_FLIGHTS_HISTORY_DB", str(path))
     monkeypatch.setattr(history_module, "MAX_ENABLED_SCHEDULES", 1)
@@ -387,7 +395,6 @@ def test_schedule_limit_expiry_reset_and_delete_cascade(tmp_path, monkeypatch) -
     save_search_response(first)
     save_search_response(second)
     groups = list_history_groups()
-    now = datetime(2026, 6, 19, tzinfo=timezone.utc)
     toggle_history_schedule(groups[0]["id"], True, now=now)
 
     with pytest.raises(ValueError, match="最多只能启用"):
